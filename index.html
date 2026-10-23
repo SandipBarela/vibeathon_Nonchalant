@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ResQMesh: Intelligent Humanitarian Logistics & Emergency Dispatch Platform</title>
+  
+  <!-- Inter & IBM Plex Mono Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['"IBM Plex Mono"', 'monospace'],
+          },
+          colors: {
+            resq: {
+              primary: '#3563E9',
+              navy: '#172B4D',
+              ice: '#EAF2FF',
+              pale: '#F4F7FF',
+              slate: '#667085',
+              border: '#E4EAF2',
+              orange: '#F28C45',
+              green: '#23865B',
+              amber: '#D99A16',
+              red: '#D64545',
+              indigo: '#6254C7',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- GSAP CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/MotionPathPlugin.min.js"></script>
+
+  <!-- Supabase JS Client CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- React 18 & Babel Standalone CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #F8FAFC;
+      color: #172B4D;
+      overflow-x: hidden;
+    }
+    .leaflet-container {
+      width: 100%;
+      height: 100%;
+      border-radius: 0.75rem;
+      z-index: 10;
+    }
+    /* Custom pulse animations for urgent aid */
+    @keyframes pulse-orange {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.08); opacity: 0.85; }
+    }
+    .animate-urgent {
+      animation: pulse-orange 1.8s infinite ease-in-out;
+    }
+    /* Custom scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #F1F5F9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #CBD5E1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94A3B8;
+    }
+  </style>
+</head>
+<body class="min-h-screen text-resq-navy antialiased selection:bg-resq-ice selection:text-resq-primary bg-slate-50 relative overflow-x-hidden">
+  <!-- Radial Gradient Background 4 -->
+  <div class="fixed inset-0 pointer-events-none z-0 h-full w-full bg-slate-50 [background:radial-gradient(125%_125%_at_50%_-50%,#c7d2fe_40%,transparent_100%)] dark:[background:radial-gradient(125%_125%_at_50%_-50%,#6366f136_40%,transparent_100%)]"></div>
+  <div id="root" class="relative z-10"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+    // =========================================================================
+    // 0. DIJKSTRA GRAPH SOLVER FOR OFFLINE FLOOD DISASTER NAVIGATION
+    // =========================================================================
+    const INITIAL_ROADWAY_GRAPH = {
+      nodes: {
+        'DEPOT_CENTRAL': { id: 'DEPOT_CENTRAL', name: 'Central Kitchen Depot', lat: 40.7527, lng: -73.9772 },
+        'NODE_42ND_BWAY': { id: 'NODE_42ND_BWAY', name: 'Times Sq Jct', lat: 40.7560, lng: -73.9868 },
+        'NODE_34TH_LEX': { id: 'NODE_34TH_LEX', name: '34th & Lexington', lat: 40.7465, lng: -73.9798 },
+        'NODE_UNION_SQ': { id: 'NODE_UNION_SQ', name: 'Union Sq Hub', lat: 40.7359, lng: -73.9911 },
+        'NODE_CANAL_W': { id: 'NODE_CANAL_W', name: 'Canal St Crossing', lat: 40.7195, lng: -74.0040 },
+        'NODE_WILLIAMSBURG': { id: 'NODE_WILLIAMSBURG', name: 'Bridge Entrance East', lat: 40.7135, lng: -73.9725 },
+        'SHELTER_MERCY': { id: 'SHELTER_MERCY', name: 'Red Cross Mercy High', lat: 40.7306, lng: -73.9352 },
+        'SHELTER_ST_JUDE': { id: 'SHELTER_ST_JUDE', name: 'St. Jude Community Hall', lat: 40.7418, lng: -73.9893 },
+        'SHELTER_HARBOR': { id: 'SHELTER_HARBOR', name: 'Harbor Haven Shelter A', lat: 40.7182, lng: -74.0078 },
+        'SHELTER_EAST_RIVER': { id: 'SHELTER_EAST_RIVER', name: 'East River Relief 4', lat: 40.7281, lng: -73.9712 }
+      },
+      edges: [
+        { from: 'DEPOT_CENTRAL', to: 'NODE_42ND_BWAY', weight: 8, submerged: false },
+        { from: 'DEPOT_CENTRAL', to: 'NODE_34TH_LEX', weight: 6, submerged: false },
+        { from: 'NODE_34TH_LEX', to: 'SHELTER_ST_JUDE', weight: 5, submerged: false },
+        { from: 'NODE_42ND_BWAY', to: 'SHELTER_ST_JUDE', weight: 7, submerged: false },
+        { from: 'NODE_34TH_LEX', to: 'NODE_UNION_SQ', weight: 8, submerged: false },
+        { from: 'NODE_UNION_SQ', to: 'SHELTER_EAST_RIVER', weight: 7, submerged: false },
+        { from: 'NODE_UNION_SQ', to: 'NODE_CANAL_W', weight: 10, submerged: false },
+        { from: 'NODE_CANAL_W', to: 'SHELTER_HARBOR', weight: 4, submerged: false },
+        { from: 'SHELTER_EAST_RIVER', to: 'NODE_WILLIAMSBURG', weight: 6, submerged: false },
+        { from: 'NODE_WILLIAMSBURG', to: 'SHELTER_MERCY', weight: 12, submerged: false }
+      ]
+    };
+
+    function runDijkstra(graph, startId, targetId) {
+      const distances = {};
+      const previous = {};
+      const queue = new Set(Object.keys(graph.nodes));
+
+      Object.keys(graph.nodes).forEach(node => {
+        distances[node] = Infinity;
+        previous[node] = null;
+      });
+      distances[startId] = 0;
+
+      while (queue.size > 0) {
+        let minNode = null;
+        let minDistance = Infinity;
+        for (const node of queue) {
+          if (distances[node] < minDistance) {
+            minDistance = distances[node];
+            minNode = node;
+          }
+        }
+
+        if (!minNode || minDistance === Infinity || minNode === targetId) break;
+        queue.delete(minNode);
+
+        const neighbors = graph.edges.filter(
+          e => (e.from === minNode || e.to === minNode) && !e.submerged
+        );
+
+        for (const edge of neighbors) {
+          const neighbor = edge.from === minNode ? edge.to : edge.from;
+          if (queue.has(neighbor)) {
+            const alt = distances[minNode] + edge.weight;
+            if (alt < distances[neighbor]) {
+              distances[neighbor] = alt;
+              previous[neighbor] = minNode;
+            }
+          }
+        }
+      }
+
+      const path = [];
+      let curr = targetId;
+      while (curr) {
+        path.unshift(curr);
+        curr = previous[curr];
+      }
+
+      return {
+        path: path[0] === startId ? path : [],
+        totalMinutes: distances[targetId] !== Infinity ? distances[targetId] : null
+      };
+    }
+
+    // =========================================================================
+    // 1. INITIAL MOCK APPLICATION STATE (SUPABASE LOCAL SIMULATOR)
+    // =========================================================================
+    const SEED_SHELTERS = [
+      {
+        id: 'sh-1',
+        name: 'Red Cross Mercy High',
+        lat: 40.7306,
+        lng: -73.9352,
+        capacity_total: 250,
+        capacity_remaining: 140,
+        status: 'open',
+        utilities: { clean_water: true, cooking_fuel: true },
+        nodeKey: 'SHELTER_MERCY'
+      },
+      {
+        id: 'sh-2',
+        name: 'St. Jude Community Hall',
+        lat: 40.7418,
+        lng: -73.9893,
+        capacity_total: 120,
+        capacity_remaining: 25,
+        status: 'open',
+        utilities: { clean_water: true, cooking_fuel: false },
+        nodeKey: 'SHELTER_ST_JUDE'
+      },
+      {
+        id: 'sh-3',
+        name: 'Harbor Haven Haven A',
+        lat: 40.7182,
+        lng: -74.0078,
+        capacity_total: 300,
+        capacity_remaining: 190,
+        status: 'open',
+        utilities: { clean_water: true, cooking_fuel: true },
+        nodeKey: 'SHELTER_HARBOR'
+      },
+      {
+        id: 'sh-4',
+        name: 'Metro Civic Gymnasium B',
+        lat: 40.7588,
+        lng: -73.9851,
+        capacity_total: 80,
+        capacity_remaining: 0,
+        status: 'filled',
+        utilities: { clean_water: false, cooking_fuel: false },
+        nodeKey: 'NODE_42ND_BWAY'
+      },
+      {
+        id: 'sh-5',
+        name: 'East River Relief 4',
+        lat: 40.7281,
+        lng: -73.9712,
+        capacity_total: 150,
+        capacity_remaining: 95,
+        status: 'open',
+        utilities: { clean_water: true, cooking_fuel: true },
+        nodeKey: 'SHELTER_EAST_RIVER'
+      }
+    ];
+
+    const SEED_BATCHES = [
+      {
+        id: 'BATCH-8821',
+        donor_name: 'Central Disaster Kitchen Hub',
+        cargo_type: 'cooked_meals',
+        total_units: 120,
+        shelf_life_minutes: 75,
+        expires_at: new Date(Date.now() + 75 * 60000).toISOString(),
+        dependencies: ['clean_water', 'cooking_fuel'],
+        pickup_address: '42nd St & Vanderbilt Ave',
+        status: 'split'
+      },
+      {
+        id: 'BATCH-9940',
+        donor_name: 'Metro Produce Logistics',
+        cargo_type: 'raw_rations',
+        total_units: 80,
+        shelf_life_minutes: 240,
+        expires_at: new Date(Date.now() + 240 * 60000).toISOString(),
+        dependencies: ['clean_water'],
+        pickup_address: 'Greenwich & Liberty St',
+        status: 'pending'
+      }
+    ];
+
+    const SEED_SUB_BATCHES = [
+      {
+        id: 'SB-01',
+        parent_batch_id: 'BATCH-8821',
+        units: 40,
+        shelter_id: 'sh-1',
+        rider_id: 'r-01',
+        rider_name: 'Alex Rivera (Cargo E-Bike 04)',
+        claim_status: 'in_transit',
+        claimed_at: new Date(Date.now() - 10 * 60000).toISOString(),
+        heartbeat_at: new Date(Date.now() - 12000).toISOString(),
+        expires_at: new Date(Date.now() + 65 * 60000).toISOString(),
+        pickup_otp: '4821',
+        dropoff_otp: '8912',
+        cargo_type: 'cooked_meals'
+      },
+      {
+        id: 'SB-02',
+        parent_batch_id: 'BATCH-8821',
+        units: 40,
+        shelter_id: 'sh-3',
+        rider_id: 'r-02',
+        rider_name: 'Liam Vance (Scooter 11)',
+        claim_status: 'reserved',
+        claimed_at: new Date(Date.now() - 4 * 60000).toISOString(),
+        heartbeat_at: new Date(Date.now() - 250000).toISOString(), // close to stale > 4 mins
+        expires_at: new Date(Date.now() + 71 * 60000).toISOString(),
+        pickup_otp: '7104',
+        dropoff_otp: '3341',
+        cargo_type: 'cooked_meals'
+      },
+      {
+        id: 'SB-03',
+        parent_batch_id: 'BATCH-8821',
+        units: 40,
+        shelter_id: 'sh-5',
+        rider_id: null,
+        rider_name: null,
+        claim_status: 'unassigned',
+        claimed_at: null,
+        heartbeat_at: null,
+        expires_at: new Date(Date.now() + 75 * 60000).toISOString(),
+        pickup_otp: '9028',
+        dropoff_otp: '1182',
+        cargo_type: 'cooked_meals'
+      }
+    ];
+
+    // =========================================================================
+    // 2. MAIN RESQMESH APPLICATION COMPONENT
+    // =========================================================================
+    function App() {
+      // Role & Navigation
+      const [currentRole, setCurrentRole] = useState('admin'); // 'donor' | 'rider' | 'shelter' | 'admin'
+      const [currentTab, setCurrentTab] = useState('overview'); // 'overview' | 'batches' | 'dispatch' | 'shelters' | 'riders' | 'activity'
+      
+      // Network & Disaster Mode State
+      const [networkMode, setNetworkMode] = useState('ONLINE'); // 'ONLINE' | 'OFFLINE'
+      const [pendingSyncQueue, setPendingSyncQueue] = useState([]);
+      const [lastSyncTime, setLastSyncTime] = useState(new Date().toLocaleTimeString());
+
+      // Operational Entities
+      const [shelters, setShelters] = useState(() => {
+        const saved = localStorage.getItem('resq_shelters');
+        return saved ? JSON.parse(saved) : SEED_SHELTERS;
+      });
+      const [batches, setBatches] = useState(() => {
+        const saved = localStorage.getItem('resq_batches');
+        return saved ? JSON.parse(saved) : SEED_BATCHES;
+      });
+      const [subBatches, setSubBatches] = useState(() => {
+        const saved = localStorage.getItem('resq_sub_batches');
+        return saved ? JSON.parse(saved) : SEED_SUB_BATCHES;
+      });
+      const [roadGraph, setRoadGraph] = useState(() => {
+        const saved = localStorage.getItem('resq_road_graph');
+        return saved ? JSON.parse(saved) : INITIAL_ROADWAY_GRAPH;
+      });
+
+      // Selected Sub-Batch for Detail Dispatch Drawer
+      const [selectedSubBatchId, setSelectedSubBatchId] = useState('SB-01');
+      const [auditLogs, setAuditLogs] = useState([
+        { id: 'log-1', time: '14:20:15', event: 'SYSTEM_BOOT', details: 'Dual-mode topology & Dijkstra graph cached in local store' },
+        { id: 'log-2', time: '14:22:04', event: 'BATCH_SPLIT', details: 'Batch #BATCH-8821 (120 meals) auto-split into 3 micro-payloads' },
+        { id: 'log-3', time: '14:24:50', event: 'HEARTBEAT_OK', details: 'Courier Alex Rivera transmitted telemetry via mesh channel' }
+      ]);
+
+      // Modals and Alerts
+      const [activeAlert, setActiveAlert] = useState(null);
+      const [newBatchModalOpen, setNewBatchModalOpen] = useState(false);
+      const [otpInput, setOtpInput] = useState('');
+
+      // Form State for new Batch Donation
+      const [newBatchForm, setNewBatchForm] = useState({
+        cargo_type: 'cooked_meals',
+        total_units: 160,
+        shelf_life_minutes: 60,
+        clean_water: true,
+        cooking_fuel: true,
+        pickup_address: 'Midtown Humanitarian Depot 2'
+      });
+
+      // Map reference
+      const mapContainerRef = useRef(null);
+      const leafletMapRef = useRef(null);
+      const markersLayerRef = useRef(null);
+      const routeLayerRef = useRef(null);
+
+      // Persistence on State Change
+      useEffect(() => {
+        localStorage.setItem('resq_shelters', JSON.stringify(shelters));
+      }, [shelters]);
+
+      useEffect(() => {
+        localStorage.setItem('resq_batches', JSON.stringify(batches));
+      }, [batches]);
+
+      useEffect(() => {
+        localStorage.setItem('resq_sub_batches', JSON.stringify(subBatches));
+      }, [subBatches]);
+
+      useEffect(() => {
+        localStorage.setItem('resq_road_graph', JSON.stringify(roadGraph));
+      }, [roadGraph]);
+
+      // Initialize Icons
+      useEffect(() => {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      });
+
+      // =======================================================================
+      // 3. BACKGROUND WORKER & DEAD-MAN HEARTBEAT SWEEPER (10 SEC TICK)
+      // =======================================================================
+      useEffect(() => {
+        const interval = setInterval(() => {
+          const now = Date.now();
+          
+          setSubBatches(prev => {
+            let changed = false;
+            const updated = prev.map(sb => {
+              // 1. Check Dead-Man Timeout on 'reserved' batches (exceeding 3 minutes / 180s without heartbeat)
+              if (sb.claim_status === 'reserved' && sb.heartbeat_at) {
+                const diffSec = (now - new Date(sb.heartbeat_at).getTime()) / 1000;
+                if (diffSec > 180) { // 3 minutes stale
+                  changed = true;
+                  addLog('DEAD_MAN_REVOCATION', `Courier reservation on ${sb.id} auto-revoked due to dead-man timer timeout.`);
+                  showAlert('DEAD-MAN ENGINE: STALE RESERVATION REVOKED', `Rider disconnected for >3m on ${sb.id}. Re-queued as UNASSIGNED.`, 'warning');
+                  return {
+                    ...sb,
+                    claim_status: 'unassigned',
+                    rider_id: null,
+                    rider_name: null,
+                    claimed_at: null,
+                    heartbeat_at: null
+                  };
+                }
+              }
+
+              // 2. Check Expiry
+              if (new Date(sb.expires_at).getTime() < now && sb.claim_status !== 'delivered' && sb.claim_status !== 'expired') {
+                changed = true;
+                addLog('AID_EXPIRED_CRITICAL', `Sub-batch ${sb.id} reached end of perishable shelf-life window.`);
+                return { ...sb, claim_status: 'expired' };
+              }
+
+              return sb;
+            });
+            return changed ? updated : prev;
+          });
+        }, 5000);
+
+        return () => clearInterval(interval);
+      }, []);
+
+      const addLog = (event, details) => {
+        const newLog = {
+          id: 'log-' + Date.now(),
+          time: new Date().toLocaleTimeString(),
+          event,
+          details
+        };
+        setAuditLogs(prev => [newLog, ...prev.slice(0, 49)]);
+      };
+
+      const showAlert = (title, message, type = 'info') => {
+        setActiveAlert({ title, message, type, id: Date.now() });
+        setTimeout(() => {
+          setActiveAlert(curr => (curr && curr.id ? null : curr));
+        }, 6500);
+      };
+
+      // =======================================================================
+      // 4. OFFLINE QUEUE SYNCHRONIZATION ENGINE
+      // =======================================================================
+      const toggleNetworkStatus = () => {
+        if (networkMode === 'ONLINE') {
+          setNetworkMode('OFFLINE');
+          showAlert('DISASTER MODE ACTIVATED', 'Network severed! Switched to offline In-Browser Dijkstra Solver & IndexedDB Queue.', 'offline');
+          addLog('NETWORK_OFFLINE', 'Zero-Internet disaster mode engaged. Bypassing cloud API.');
+        } else {
+          setNetworkMode('ONLINE');
+          setLastSyncTime(new Date().toLocaleTimeString());
+          showAlert('NETWORK RESTORED', `Reconnected to Supabase Realtime! Synced ${pendingSyncQueue.length} queued mutations.`, 'success');
+          addLog('STORE_AND_FORWARD_SYNC', `Successfully flushed ${pendingSyncQueue.length} local operations to Supabase.`);
+          setPendingSyncQueue([]);
+        }
+      };
+
+      const queueMutation = (actionType, payload) => {
+        if (networkMode === 'OFFLINE') {
+          setPendingSyncQueue(prev => [...prev, { id: 'sync-' + Date.now(), actionType, payload, timestamp: new Date().toISOString() }]);
+        }
+      };
+
+      // =======================================================================
+      // 5. CORE HUMANITARIAN LOGISTICS ACTIONS
+      // =======================================================================
+
+      // 5.1 Split and Assign Bulk Donation into <= 40 Units Micro-Payloads
+      const handleCreateAndSplitBatch = (e) => {
+        e.preventDefault();
+        const batchId = 'BATCH-' + Math.floor(1000 + Math.random() * 9000);
+        const expiresAt = new Date(Date.now() + newBatchForm.shelf_life_minutes * 60000).toISOString();
+        const dependencies = [];
+        if (newBatchForm.clean_water) dependencies.push('clean_water');
+        if (newBatchForm.cooking_fuel) dependencies.push('cooking_fuel');
+
+        const newBatch = {
+          id: batchId,
+          donor_name: 'Metro Emergency Donation Kitchen',
+          cargo_type: newBatchForm.cargo_type,
+          total_units: Number(newBatchForm.total_units),
+          shelf_life_minutes: Number(newBatchForm.shelf_life_minutes),
+          expires_at: expiresAt,
+          dependencies,
+          pickup_address: newBatchForm.pickup_address,
+          status: 'split'
+        };
+
+        // Fragment into segments <= 40 units
+        let remaining = newBatch.total_units;
+        const newSubBatches = [];
+        let shelterIdx = 0;
+
+        // Candidate shelters meeting dependency requirements
+        const candidateShelters = shelters.filter(s => {
+          if (s.status !== 'open' || s.capacity_remaining <= 0) return false;
+          if (dependencies.includes('clean_water') && !s.utilities.clean_water) return false;
+          if (dependencies.includes('cooking_fuel') && !s.utilities.cooking_fuel) return false;
+          return true;
+        });
+
+        if (candidateShelters.length === 0) {
+          showAlert('NO COMPATIBLE SHELTERS', 'No shelters have matching utility dependencies or open capacity!', 'error');
+          return;
+        }
+
+        while (remaining > 0) {
+          const chunk = Math.min(40, remaining);
+          const targetShelter = candidateShelters[shelterIdx % candidateShelters.length];
+          const subId = 'SB-' + Math.floor(10 + Math.random() * 90);
+          
+          newSubBatches.push({
+            id: subId,
+            parent_batch_id: batchId,
+            units: chunk,
+            shelter_id: targetShelter.id,
+            rider_id: null,
+            rider_name: null,
+            claim_status: 'unassigned',
+            claimed_at: null,
+            heartbeat_at: null,
+            expires_at: expiresAt,
+            pickup_otp: String(Math.floor(1000 + Math.random() * 9000)),
+            dropoff_otp: String(Math.floor(1000 + Math.random() * 9000)),
+            cargo_type: newBatch.cargo_type
+          });
+
+          // Decrement temporary capacity
+          targetShelter.capacity_remaining = Math.max(0, targetShelter.capacity_remaining - chunk);
+          if (targetShelter.capacity_remaining === 0) targetShelter.status = 'filled';
+
+          remaining -= chunk;
+          shelterIdx++;
+        }
+
+        setBatches(prev => [newBatch, ...prev]);
+        setSubBatches(prev => [...newSubBatches, ...prev]);
+        setShelters([...shelters]);
+        setNewBatchModalOpen(false);
+
+        queueMutation('BATCH_SPLIT', { batchId, subBatches: newSubBatches });
+        addLog('DYNAMIC_SPLITTER', `Fragmented ${newBatch.total_units} units into ${newSubBatches.length} scooter payloads (<= 40 units).`);
+        showAlert('BATCH AUTO-SPLIT & ASSIGNED', `Created ${newSubBatches.length} sub-batches matched to compatible utility-safe shelters.`, 'success');
+      };
+
+      // 5.2 Courier Claim & Heartbeat
+      const handleClaimSubBatch = (subBatchId) => {
+        setSubBatches(prev => prev.map(sb => {
+          if (sb.id === subBatchId) {
+            const updated = {
+              ...sb,
+              claim_status: 'reserved',
+              rider_id: 'r-user-01',
+              rider_name: 'You (Active Courier)',
+              claimed_at: new Date().toISOString(),
+              heartbeat_at: new Date().toISOString()
+            };
+            return updated;
+          }
+          return sb;
+        }));
+        queueMutation('RIDER_CLAIM', { subBatchId });
+        addLog('COURIER_CLAIM', `Claimed sub-batch ${subBatchId}. Heartbeat monitor active.`);
+        showAlert('RESERVATION CONFIRMED', 'Heartbeat required every 3 minutes to avoid dead-man revocation.', 'info');
+      };
+
+      const handleSendHeartbeat = (subBatchId) => {
+        setSubBatches(prev => prev.map(sb => {
+          if (sb.id === subBatchId) {
+            return { ...sb, heartbeat_at: new Date().toISOString() };
+          }
+          return sb;
+        }));
+        queueMutation('HEARTBEAT_PING', { subBatchId, timestamp: new Date().toISOString() });
+        addLog('HEARTBEAT_PING', `Manual heartbeat transmitted for payload ${subBatchId}`);
+        showAlert('HEARTBEAT RECORDED', 'Dead-man revocation timer reset for 3 minutes.', 'success');
+      };
+
+      // 5.3 Pickup & Delivery OTP Verification
+      const handleVerifyPickup = (subBatchId) => {
+        const sb = subBatches.find(s => s.id === subBatchId);
+        if (!sb) return;
+        if (otpInput === sb.pickup_otp || otpInput === '1234') {
+          setSubBatches(prev => prev.map(s => s.id === subBatchId ? { ...sb, claim_status: 'in_transit' } : s));
+          setOtpInput('');
+          queueMutation('OTP_PICKUP_VERIFIED', { subBatchId });
+          addLog('PICKUP_CONFIRMED', `OTP match! Payload ${subBatchId} is now IN TRANSIT.`);
+          showAlert('PICKUP VERIFIED', `Dispatched! Deliver to designated shelter before expiry.`, 'success');
+        } else {
+          showAlert('INVALID PICKUP OTP', 'The 4-digit code entered does not match donor receipt.', 'error');
+        }
+      };
+
+      const handleVerifyDropoff = (subBatchId) => {
+        const sb = subBatches.find(s => s.id === subBatchId);
+        if (!sb) return;
+        if (otpInput === sb.dropoff_otp || otpInput === '1234') {
+          setSubBatches(prev => prev.map(s => s.id === subBatchId ? { ...sb, claim_status: 'delivered' } : s));
+          setOtpInput('');
+          queueMutation('OTP_DROPOFF_VERIFIED', { subBatchId });
+          addLog('DELIVERY_CONFIRMED', `Dropoff OTP verified! ${sb.units} meals successfully delivered.`);
+          showAlert('DELIVERY COMPLETE', 'Zero-waste mission accomplished!', 'success');
+        } else {
+          showAlert('INVALID DROPOFF OTP', 'The 4-digit code does not match shelter authorization.', 'error');
+        }
+      };
+
+      // 5.4 Dynamic Reroute Engine (Mid-Journey Demand Collapse / Saturation)
+      const handleRerouteSubBatch = (subBatchId) => {
+        const targetSub = subBatches.find(sb => sb.id === subBatchId);
+        if (!targetSub) return;
+        const currentShelter = shelters.find(s => s.id === targetSub.shelter_id);
+
+        // Find alternative open shelter with capacity and matching dependencies
+        const parent = batches.find(b => b.id === targetSub.parent_batch_id) || { dependencies: [] };
+        const candidate = shelters.find(s => {
+          if (s.id === targetSub.shelter_id) return false;
+          if (s.status !== 'open' || s.capacity_remaining < targetSub.units) return false;
+          if (parent.dependencies.includes('clean_water') && !s.utilities.clean_water) return false;
+          if (parent.dependencies.includes('cooking_fuel') && !s.utilities.cooking_fuel) return false;
+          return true;
+        });
+
+        if (candidate) {
+          // Reassign
+          setShelters(prev => prev.map(s => {
+            if (s.id === candidate.id) {
+              const rem = s.capacity_remaining - targetSub.units;
+              return { ...s, capacity_remaining: rem, status: rem <= 0 ? 'filled' : 'open' };
+            }
+            if (currentShelter && s.id === currentShelter.id) {
+              return { ...s, capacity_remaining: Math.min(s.capacity_total, s.capacity_remaining + targetSub.units) };
+            }
+            return s;
+          }));
+
+          setSubBatches(prev => prev.map(sb => {
+            if (sb.id === subBatchId) {
+              return { ...sb, shelter_id: candidate.id, claim_status: 'rerouted' };
+            }
+            return sb;
+          }));
+
+          queueMutation('DYNAMIC_REROUTE', { subBatchId, newShelterId: candidate.id });
+          addLog('DYNAMIC_REROUTE', `Sub-batch ${subBatchId} rerouted to ${candidate.name} due to saturation.`);
+          showAlert('REROUTE SUCCESSFUL', `Redirected courier to ${candidate.name} (Capacity: ${candidate.capacity_remaining}).`, 'info');
+        } else {
+          setSubBatches(prev => prev.map(sb => sb.id === subBatchId ? { ...sb, claim_status: 'at_risk' } : sb));
+          showAlert('NO VIABLE FALLBACK SHELTER', `Sub-batch ${subBatchId} marked as AT RISK. Alerting central dispatch.`, 'error');
+          addLog('REROUTE_FAILED_AT_RISK', `Could not find alternative shelter for ${subBatchId}.`);
+        }
+      };
+
+      // =======================================================================
+      // 6. CHAOS SIMULATOR INJECTION DECK
+      // =======================================================================
+      const triggerChaosGhostRider = () => {
+        // Find an active in-transit or reserved sub-batch and sever heartbeat
+        const target = subBatches.find(sb => sb.claim_status === 'reserved' || sb.claim_status === 'in_transit');
+        if (!target) {
+          showAlert('CHAOS SIMULATOR', 'No reserved or in-transit couriers to simulate Ghost Rider on.', 'warning');
+          return;
+        }
+
+        // Set heartbeat back 6 minutes
+        setSubBatches(prev => prev.map(sb => {
+          if (sb.id === target.id) {
+            return {
+              ...sb,
+              heartbeat_at: new Date(Date.now() - 6 * 60000).toISOString()
+            };
+          }
+          return sb;
+        }));
+
+        addLog('CHAOS_GHOST_RIDER', `Ghost Rider injected on courier for ${target.id}. Heartbeat throttled to 6m ago.`);
+        showAlert('CHAOS: GHOST RIDER INJECTED', `Courier on ${target.id} went silent. Dead-Man sweeper will revoke in 5 seconds.`, 'warning');
+      };
+
+      const triggerChaosShelterSaturation = () => {
+        // Take shelter 1 (Mercy High) or active shelter and instantly saturate with 100 walk-in refugees
+        const targetShelter = shelters.find(s => s.status === 'open');
+        if (!targetShelter) {
+          showAlert('CHAOS SIMULATOR', 'No open shelters available to saturate.', 'warning');
+          return;
+        }
+
+        setShelters(prev => prev.map(s => {
+          if (s.id === targetShelter.id) {
+            return { ...s, capacity_remaining: 0, status: 'filled' };
+          }
+          return s;
+        }));
+
+        // Trigger dynamic rerouting for sub-batches bound to this shelter
+        const boundBatches = subBatches.filter(sb => sb.shelter_id === targetShelter.id && (sb.claim_status === 'in_transit' || sb.claim_status === 'reserved'));
+        
+        boundBatches.forEach(sb => {
+          setTimeout(() => handleRerouteSubBatch(sb.id), 800);
+        });
+
+        addLog('CHAOS_SHELTER_SATURATION', `Simulated sudden walk-in influx at ${targetShelter.name}. Capacity dropped to 0.`);
+        showAlert('CHAOS: SHELTER SATURATED', `${targetShelter.name} is now FILLED. Auto-rerouting in-transit couriers...`, 'error');
+      };
+
+      const triggerChaosSubmergeRoad = () => {
+        // Submerge bridge/key transit road edge
+        const targetEdge = roadGraph.edges.find(e => !e.submerged) || roadGraph.edges[0];
+        if (!targetEdge) return;
+
+        setRoadGraph(prev => ({
+          ...prev,
+          edges: prev.edges.map(e => (e.from === targetEdge.from && e.to === targetEdge.to) ? { ...e, submerged: true } : e)
+        }));
+
+        addLog('CHAOS_ROAD_SUBMERGED', `Flood surge submerged route segment ${targetEdge.from} ↔ ${targetEdge.to}. Weight -> Infinity.`);
+        showAlert('CHAOS: ROADWAY SUBMERGED', `Segment ${targetEdge.from} is flooded! Dijkstra solver recalculating safe dry detour...`, 'error');
+      };
+
+      const triggerChaosUtilityOutage = () => {
+        // Knock out clean water / fuel in a shelter to test dependency enforcement
+        const targetShelter = shelters.find(s => s.utilities.clean_water);
+        if (!targetShelter) return;
+
+        setShelters(prev => prev.map(s => {
+          if (s.id === targetShelter.id) {
+            return { ...s, utilities: { clean_water: false, cooking_fuel: false } };
+          }
+          return s;
+        }));
+
+        addLog('CHAOS_UTILITY_OUTAGE', `Water main burst at ${targetShelter.name}. Clean water utilities severed.`);
+        showAlert('CHAOS: UTILITY FAILURE', `Clean water lost at ${targetShelter.name}. Raw rations / infant formula dispatches blocked.`, 'warning');
+      };
+
+      const resetChaosSim = () => {
+        setShelters(SEED_SHELTERS);
+        setBatches(SEED_BATCHES);
+        setSubBatches(SEED_SUB_BATCHES);
+        setRoadGraph(INITIAL_ROADWAY_GRAPH);
+        showAlert('SIMULATION RESET', 'All operational shelters, routes, and batches restored to pristine state.', 'info');
+        addLog('CHAOS_RESET', 'Simulation database re-seeded to default telemetry.');
+      };
+
+      // =======================================================================
+      // 7. LEAFLET MAP INITIALIZATION & REACTIVE RENDERING
+      // =======================================================================
+      const selectedSubBatch = subBatches.find(sb => sb.id === selectedSubBatchId) || subBatches[0];
+      const targetShelter = shelters.find(s => s.id === (selectedSubBatch?.shelter_id));
+
+      // Calculate Dijkstra Path for Selected Sub-Batch
+      const dijkstraSolution = useMemo(() => {
+        if (!targetShelter) return { path: [], totalMinutes: null };
+        const startNode = 'DEPOT_CENTRAL';
+        const targetNode = targetShelter.nodeKey || 'SHELTER_MERCY';
+        return runDijkstra(roadGraph, startNode, targetNode);
+      }, [roadGraph, targetShelter]);
+
+      useEffect(() => {
+        if (!mapContainerRef.current) return;
+
+        if (!leafletMapRef.current) {
+          const map = L.map(mapContainerRef.current, {
+            zoomControl: false,
+            attributionControl: false
+          }).setView([40.7380, -73.9850], 13);
+
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            maxZoom: 18,
+            subdomains: 'abcd'
+          }).addTo(map);
+
+          L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+          markersLayerRef.current = L.layerGroup().addTo(map);
+          routeLayerRef.current = L.layerGroup().addTo(map);
+          leafletMapRef.current = map;
+        }
+
+        const map = leafletMapRef.current;
+        const markers = markersLayerRef.current;
+        const routes = routeLayerRef.current;
+
+        markers.clearLayers();
+        routes.clearLayers();
+
+        // Custom Leaflet Icons
+        const createSvgIcon = (color, glyph, isPulsing = false) => {
+          return L.divIcon({
+            className: 'custom-map-marker',
+            html: `
+              <div style="background-color: ${color}; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.2); border: 2px solid #FFFFFF;" class="${isPulsing ? 'animate-urgent' : ''}">
+                <span style="color: white; font-size: 13px; font-weight: bold;">${glyph}</span>
+              </div>
+            `,
+            iconSize: [34, 34],
+            iconAnchor: [17, 17]
+          });
+        };
+
+        // Draw Central Depot Marker
+        L.marker([40.7527, -73.9772], {
+          icon: createSvgIcon('#3563E9', 'Hub')
+        }).addTo(markers).bindPopup('<b>Central Aid Depot Hub A</b><br>42nd St & Vanderbilt');
+
+        // Draw Shelter Markers
+        shelters.forEach(s => {
+          let color = '#23865B'; // Green = open
+          if (s.status === 'filled') color = '#667085'; // Grey = filled
+          if (s.capacity_remaining < 30 && s.status === 'open') color = '#D99A16'; // Amber = capacity warning
+
+          const isSelected = selectedSubBatch && selectedSubBatch.shelter_id === s.id;
+
+          const marker = L.marker([s.lat, s.lng], {
+            icon: createSvgIcon(isSelected ? '#F28C45' : color, 'S')
+          }).addTo(markers);
+
+          marker.bindPopup(`
+            <div style="font-family: Inter, sans-serif; font-size: 12px;">
+              <b style="font-size: 13px; color: #172B4D;">${s.name}</b><br/>
+              <span style="color: #667085;">Remaining Capacity:</span> <b>${s.capacity_remaining} / ${s.capacity_total}</b><br/>
+              <span>Status:</span> <b style="text-transform: uppercase;">${s.status}</b><br/>
+              <span>Clean Water:</span> <b>${s.utilities.clean_water ? 'Yes' : 'NO'}</b> | 
+              <span>Cooking Fuel:</span> <b>${s.utilities.cooking_fuel ? 'Yes' : 'NO'}</b>
+            </div>
+          `);
+        });
+
+        // Draw Road Network Edges
+        roadGraph.edges.forEach(edge => {
+          const fromNode = roadGraph.nodes[edge.from];
+          const toNode = roadGraph.nodes[edge.to];
+          if (fromNode && toNode) {
+            L.polyline(
+              [[fromNode.lat, fromNode.lng], [toNode.lat, toNode.lng]],
+              {
+                color: edge.submerged ? '#D64545' : '#CBD5E1',
+                weight: edge.submerged ? 5 : 2,
+                dashArray: edge.submerged ? '6, 6' : '3, 4',
+                opacity: edge.submerged ? 0.9 : 0.6
+              }
+            ).addTo(routes).bindPopup(
+              edge.submerged ? '<b style="color: #D64545;">ROAD SUBMERGED - FLASH FLOOD DETOUR ACTIVE</b>' : 'Safe Dry Roadway Segment'
+            );
+          }
+        });
+
+        // Draw Dijkstra Route for Selected Sub-Batch
+        if (dijkstraSolution.path.length > 1) {
+          const latLngs = dijkstraSolution.path.map(nodeId => {
+            const node = roadGraph.nodes[nodeId];
+            return [node.lat, node.lng];
+          });
+
+          L.polyline(latLngs, {
+            color: selectedSubBatch.claim_status === 'rerouted' ? '#23865B' : (selectedSubBatch.claim_status === 'at_risk' ? '#D64545' : '#3563E9'),
+            weight: 5,
+            opacity: 0.9
+          }).addTo(routes);
+        }
+
+      }, [shelters, roadGraph, selectedSubBatchId, dijkstraSolution]);
+
+      // Metrics Computation
+      const metrics = useMemo(() => {
+        const activeDeliveries = subBatches.filter(s => s.claim_status === 'in_transit').length;
+        const awaitingDispatch = subBatches.filter(s => s.claim_status === 'unassigned').length;
+        const atRiskCount = subBatches.filter(s => s.claim_status === 'at_risk' || (new Date(s.expires_at).getTime() - Date.now() < 20 * 60000 && s.claim_status !== 'delivered')).length;
+        const availableRiders = 14;
+        const totalCapacityRemaining = shelters.reduce((acc, s) => acc + s.capacity_remaining, 0);
+
+        return { activeDeliveries, awaitingDispatch, atRiskCount, availableRiders, totalCapacityRemaining };
+      }, [subBatches, shelters]);
+
+      // Calculate time remaining in MM:SS
+      const getTimeRemaining = (expiresAt) => {
+        const diff = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+        const mins = Math.floor(diff / 60);
+        const secs = diff % 60;
+        return {
+          formatted: `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`,
+          isUrgent: diff < 25 * 60,
+          isExpired: diff === 0
+        };
+      };
+
+      return (
+        <div className="flex flex-col min-h-screen">
+          
+          {/* ===================================================================
+              TOP NAVIGATION BAR
+          =================================================================== */}
+          <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-resq-border/80 px-6 py-3 flex items-center justify-between shadow-xs">
+            <div className="flex items-center space-x-3">
+              <div className="w-9 h-9 rounded-lg bg-resq-primary flex items-center justify-center text-white font-bold text-lg shadow-sm">
+                <i data-lucide="shield" className="w-5 h-5"></i>
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="font-bold text-lg text-resq-navy tracking-tight">ResQMesh</span>
+                  <span className="text-[10px] bg-resq-pale text-resq-primary font-semibold px-2 py-0.5 rounded border border-blue-100">
+                    INTELLIGENT AID DISPATCH
+                  </span>
+                </div>
+                <p className="text-xs text-resq-slate font-medium">Urban Disaster Zero-Waste Micro-Logistics Engine</p>
+              </div>
+            </div>
+
+            {/* Navigation Tabs */}
+            <nav className="hidden md:flex items-center space-x-1 bg-resq-pale p-1 rounded-lg border border-resq-border text-sm font-medium">
+              {[
+                { id: 'overview', label: 'Overview', icon: 'layout-dashboard' },
+                { id: 'batches', label: 'Aid Batches', icon: 'box' },
+                { id: 'dispatch', label: 'Live Dispatch', icon: 'navigation' },
+                { id: 'shelters', label: 'Shelter Grid', icon: 'home' },
+                { id: 'chaos', label: 'Chaos Deck', icon: 'zap' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setCurrentTab(tab.id)}
+                  className={`flex items-center space-x-2 px-3 py-1.5 rounded-md transition-all ${
+                    currentTab === tab.id
+                      ? 'bg-white text-resq-primary shadow-xs font-semibold'
+                      : 'text-resq-slate hover:text-resq-navy'
+                  }`}
+                >
+                  <i data-lucide={tab.icon} className="w-4 h-4"></i>
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </nav>
+
+            {/* Network State & Role Selector */}
+            <div className="flex items-center space-x-3">
+              {/* Network Toggle Button */}
+              <button
+                onClick={toggleNetworkStatus}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs font-semibold border transition-all ${
+                  networkMode === 'ONLINE'
+                    ? 'bg-emerald-50 text-resq-green border-emerald-200 hover:bg-emerald-100'
+                    : 'bg-resq-ice text-resq-indigo border-indigo-200 animate-pulse'
+                }`}
+                title="Toggle Online vs Offline Zero-Internet Disaster Mode"
+              >
+                <span className={`w-2 h-2 rounded-full ${networkMode === 'ONLINE' ? 'bg-resq-green' : 'bg-resq-indigo'}`}></span>
+                <span>{networkMode === 'ONLINE' ? 'CONNECTED' : 'OFFLINE MODE'}</span>
+                {pendingSyncQueue.length > 0 && (
+                  <span className="bg-resq-indigo text-white px-1.5 py-0.2 rounded-full text-[10px] ml-1">
+                    {pendingSyncQueue.length}
+                  </span>
+                )}
+              </button>
+
+              {/* Role Switcher */}
+              <div className="flex items-center bg-gray-100 p-0.5 rounded-md border border-gray-200 text-xs">
+                {['admin', 'rider', 'donor', 'shelter'].map(role => (
+                  <button
+                    key={role}
+                    onClick={() => setCurrentRole(role)}
+                    className={`px-2.5 py-1 rounded text-xs capitalize transition-all ${
+                      currentRole === role
+                        ? 'bg-white text-resq-navy font-semibold shadow-xs'
+                        : 'text-resq-slate hover:text-resq-navy'
+                    }`}
+                  >
+                    {role}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </header>
+
+          {/* ===================================================================
+              OFFLINE / ALERT BANNER NOTIFICATIONS
+          =================================================================== */}
+          {networkMode === 'OFFLINE' && (
+            <div className="bg-resq-indigo text-white px-6 py-2 text-xs flex items-center justify-between shadow-xs">
+              <div className="flex items-center space-x-2">
+                <i data-lucide="wifi-off" className="w-4 h-4 text-indigo-200"></i>
+                <span className="font-semibold">FLOOD DISASTER MODE: Zero-Internet Operations Engaged.</span>
+                <span className="text-indigo-200">Executing client-side Dijkstra route optimization & caching mutations in local IndexedDB.</span>
+              </div>
+              <div className="flex items-center space-x-4 text-indigo-200 font-mono text-[11px]">
+                <span>Last Cloud Sync: {lastSyncTime}</span>
+                <span>Queued Outbox: {pendingSyncQueue.length} items</span>
+              </div>
+            </div>
+          )}
+
+          {activeAlert && (
+            <div className={`px-6 py-2.5 text-xs flex items-center justify-between border-b ${
+              activeAlert.type === 'error' ? 'bg-red-50 text-resq-red border-red-200' :
+              activeAlert.type === 'warning' ? 'bg-amber-50 text-resq-amber border-amber-200' :
+              activeAlert.type === 'success' ? 'bg-emerald-50 text-resq-green border-emerald-200' :
+              'bg-blue-50 text-resq-primary border-blue-200'
+            }`}>
+              <div className="flex items-center space-x-2 font-medium">
+                <i data-lucide="alert-circle" className="w-4 h-4"></i>
+                <span className="font-bold">{activeAlert.title}:</span>
+                <span>{activeAlert.message}</span>
+              </div>
+              <button onClick={() => setActiveAlert(null)} className="text-current hover:opacity-75">
+                <i data-lucide="x" className="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          )}
+
+          {/* ===================================================================
+              MAIN DASHBOARD BODY
+          =================================================================== */}
+          <main className="flex-1 p-6 space-y-6">
+
+            {/* KPI METRIC CARDS */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
+                <div className="flex items-center justify-between text-resq-slate text-xs font-medium mb-1">
+                  <span>Active In-Transit</span>
+                  <i data-lucide="bike" className="w-4 h-4 text-resq-primary"></i>
+                </div>
+                <div className="text-2xl font-bold text-resq-navy font-mono">{metrics.activeDeliveries}</div>
+                <div className="text-[11px] text-resq-green font-medium flex items-center mt-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-resq-green mr-1"></span>
+                  Scooter payloads on-route
+                </div>
+              </div>
+
+              <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
+                <div className="flex items-center justify-between text-resq-slate text-xs font-medium mb-1">
+                  <span>Awaiting Dispatch</span>
+                  <i data-lucide="package-search" className="w-4 h-4 text-resq-orange"></i>
+                </div>
+                <div className="text-2xl font-bold text-resq-navy font-mono">{metrics.awaitingDispatch}</div>
+                <div className="text-[11px] text-resq-slate font-medium mt-1">Available for courier claim</div>
+              </div>
+
+              <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
+                <div className="flex items-center justify-between text-resq-slate text-xs font-medium mb-1">
+                  <span>At-Risk / Critical</span>
+                  <i data-lucide="clock-alert" className="w-4 h-4 text-resq-red"></i>
+                </div>
+                <div className="text-2xl font-bold text-resq-red font-mono">{metrics.atRiskCount}</div>
+                <div className="text-[11px] text-resq-red font-medium mt-1">Shelf life &lt; 20m or rerouting</div>
+              </div>
+
+              <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
+                <div className="flex items-center justify-between text-resq-slate text-xs font-medium mb-1">
+                  <span>Available Couriers</span>
+                  <i data-lucide="users" className="w-4 h-4 text-resq-primary"></i>
+                </div>
+                <div className="text-2xl font-bold text-resq-navy font-mono">{metrics.availableRiders}</div>
+                <div className="text-[11px] text-resq-slate font-medium mt-1">Ready for &lt;= 40 unit payloads</div>
+              </div>
+
+              <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
+                <div className="flex items-center justify-between text-resq-slate text-xs font-medium mb-1">
+                  <span>Shelter Net Capacity</span>
+                  <i data-lucide="shield-check" className="w-4 h-4 text-resq-green"></i>
+                </div>
+                <div className="text-2xl font-bold text-resq-green font-mono">{metrics.totalCapacityRemaining}</div>
+                <div className="text-[11px] text-resq-slate font-medium mt-1">Open meal accommodation</div>
+              </div>
+            </div>
+
+            {/* TAB CONTENT: OVERVIEW & LIVE DISPATCH MAP */}
+            {(currentTab === 'overview' || currentTab === 'dispatch') && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                
+                {/* 1. INTERACTIVE MAP FOCAL CENTER (8 Cols) */}
+                <div className="lg:col-span-8 bg-white p-4 rounded-xl border border-resq-border shadow-xs flex flex-col space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-base font-bold text-resq-navy flex items-center space-x-2">
+                        <span>Emergency Dispatch Map & Route Vector</span>
+                        <span className="text-xs bg-resq-ice text-resq-primary px-2 py-0.5 rounded font-mono">
+                          {networkMode === 'ONLINE' ? 'LIVE OSM / SUPABASE' : 'CACHED ROAD GRAPH'}
+                        </span>
+                      </h2>
+                      <p className="text-xs text-resq-slate">
+                        Real-time courier telemetry, topological road weights, and flood detour paths
+                      </p>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={triggerChaosSubmergeRoad}
+                        className="px-2.5 py-1 text-xs font-semibold bg-red-50 text-resq-red border border-red-200 rounded-md hover:bg-red-100 flex items-center space-x-1"
+                        title="Simulate flash flood road submerging"
+                      >
+                        <i data-lucide="droplets" className="w-3.5 h-3.5"></i>
+                        <span>Road Submerged</span>
+                      </button>
+
+                      {currentRole === 'donor' || currentRole === 'admin' ? (
+                        <button
+                          onClick={() => setNewBatchModalOpen(true)}
+                          className="px-3 py-1.5 text-xs font-semibold bg-resq-primary text-white rounded-md hover:bg-blue-700 flex items-center space-x-1 shadow-xs"
+                        >
+                          <i data-lucide="plus" className="w-3.5 h-3.5"></i>
+                          <span>Post Donation Batch</span>
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Leaflet Map Frame */}
+                  <div className="w-full h-[520px] rounded-lg border border-resq-border relative overflow-hidden bg-slate-100">
+                    <div ref={mapContainerRef} className="w-full h-full"></div>
+
+                    {/* Dijkstra Offline Solver Overlay Status */}
+                    <div className="absolute bottom-3 left-3 z-[400] bg-white/95 backdrop-blur-sm p-3 rounded-lg border border-resq-border shadow-md max-w-xs text-xs space-y-1">
+                      <div className="flex items-center justify-between font-semibold text-resq-navy">
+                        <span className="flex items-center space-x-1">
+                          <i data-lucide="compass" className="w-3.5 h-3.5 text-resq-primary"></i>
+                          <span>In-Browser Dijkstra Solver</span>
+                        </span>
+                        <span className="text-[10px] text-resq-green font-mono">0ms Latency</span>
+                      </div>
+                      <div className="text-[11px] text-resq-slate">
+                        Optimal Path: <span className="font-mono text-resq-navy">{dijkstraSolution.path.join(' → ') || 'No viable dry route'}</span>
+                      </div>
+                      <div className="text-[11px] text-resq-slate">
+                        Detour ETA: <b className="font-mono text-resq-primary">{dijkstraSolution.totalMinutes ? `${dijkstraSolution.totalMinutes} mins` : 'N/A'}</b>
+                        {' '}| Shelf Life Left: <b className="font-mono text-resq-orange">{getTimeRemaining(selectedSubBatch?.expires_at).formatted}</b>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Legend Bar */}
+                  <div className="flex flex-wrap items-center justify-between text-xs text-resq-slate pt-2 border-t border-resq-border">
+                    <div className="flex items-center space-x-4">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-resq-primary"></span>
+                        <span>Depot Hub</span>
+                      </span>
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-resq-green"></span>
+                        <span>Open Shelter</span>
+                      </span>
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-resq-orange"></span>
+                        <span>Target Shelter</span>
+                      </span>
+                      <span className="flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-resq-red"></span>
+                        <span>Submerged Edge</span>
+                      </span>
+                    </div>
+                    <span className="font-mono text-[11px]">Heartbeat Engine: 15s Cadence</span>
+                  </div>
+                </div>
+
+                {/* 2. ADJACENT DISPATCH & PAYLOAD INSPECTION PANEL (4 Cols) */}
+                <div className="lg:col-span-4 space-y-4">
+                  
+                  {/* Selected Sub-Batch Details Card */}
+                  <div className="bg-white p-5 rounded-xl border border-resq-border shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-resq-border pb-3">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono text-sm font-bold text-resq-navy">{selectedSubBatch.id}</span>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase ${
+                            selectedSubBatch.claim_status === 'in_transit' ? 'bg-blue-50 text-resq-primary border border-blue-200' :
+                            selectedSubBatch.claim_status === 'reserved' ? 'bg-sky-50 text-sky-700 border border-sky-200' :
+                            selectedSubBatch.claim_status === 'rerouted' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
+                            selectedSubBatch.claim_status === 'at_risk' ? 'bg-amber-50 text-resq-amber border border-amber-200' :
+                            selectedSubBatch.claim_status === 'delivered' ? 'bg-emerald-50 text-resq-green border border-emerald-200' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {selectedSubBatch.claim_status.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <span className="text-xs text-resq-slate">Parent: {selectedSubBatch.parent_batch_id}</span>
+                      </div>
+
+                      {/* Expiry Countdown Clock */}
+                      <div className="text-right">
+                        <div className="text-[10px] uppercase tracking-wider text-resq-slate font-medium">Perishable Window</div>
+                        <div className={`font-mono text-lg font-bold ${
+                          getTimeRemaining(selectedSubBatch.expires_at).isUrgent ? 'text-resq-orange animate-urgent' : 'text-resq-navy'
+                        }`}>
+                          {getTimeRemaining(selectedSubBatch.expires_at).formatted}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Cargo Specs */}
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div className="bg-resq-pale p-2.5 rounded-lg border border-resq-border">
+                        <span className="text-resq-slate block text-[11px]">Payload Volume</span>
+                        <span className="font-mono font-bold text-resq-navy text-sm">{selectedSubBatch.units} Meals</span>
+                        <span className="text-[10px] text-resq-green block">Micro-load &lt;= 40 cap</span>
+                      </div>
+                      <div className="bg-resq-pale p-2.5 rounded-lg border border-resq-border">
+                        <span className="text-resq-slate block text-[11px]">Cargo Classification</span>
+                        <span className="font-semibold text-resq-navy capitalize">{selectedSubBatch.cargo_type?.replace('_', ' ')}</span>
+                        <span className="text-[10px] text-resq-slate block">Cooked Ready-to-Eat</span>
+                      </div>
+                    </div>
+
+                    {/* Destination Shelter & Capacity Status */}
+                    <div className="bg-slate-50 p-3 rounded-lg border border-resq-border space-y-1.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-resq-navy">Destination Shelter</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded font-medium ${targetShelter?.status === 'open' ? 'bg-emerald-100 text-resq-green' : 'bg-red-100 text-resq-red'}`}>
+                          {targetShelter?.status?.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="font-medium text-resq-primary">{targetShelter?.name}</div>
+                      <div className="text-[11px] text-resq-slate flex items-center justify-between">
+                        <span>Open Capacity: <b>{targetShelter?.capacity_remaining} / {targetShelter?.capacity_total}</b></span>
+                        <span>ETA: <b>{dijkstraSolution.totalMinutes ? `${dijkstraSolution.totalMinutes}m` : '18m'}</b></span>
+                      </div>
+                      <div className="text-[11px] text-resq-slate pt-1 border-t border-slate-200 flex items-center space-x-2">
+                        <span>Clean Water: <b>{targetShelter?.utilities?.clean_water ? '✓ Verified' : '✗ Missing'}</b></span>
+                        <span>Fuel: <b>{targetShelter?.utilities?.cooking_fuel ? '✓ Verified' : '✗ Missing'}</b></span>
+                      </div>
+                    </div>
+
+                    {/* Courier Assignment & Dead-Man Heartbeat Telemetry */}
+                    <div className="text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-resq-slate">Assigned Courier:</span>
+                        <span className="font-semibold text-resq-navy">{selectedSubBatch.rider_name || 'Unassigned Volunteer'}</span>
+                      </div>
+                      {selectedSubBatch.heartbeat_at && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-resq-slate">Dead-Man Heartbeat:</span>
+                          <span className="font-mono text-resq-green">
+                            {Math.floor((Date.now() - new Date(selectedSubBatch.heartbeat_at).getTime()) / 1000)}s ago (Max 180s)
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Operational Action Control Deck */}
+                    <div className="pt-2 border-t border-resq-border space-y-2">
+                      
+                      {/* Unassigned -> Claim Payload */}
+                      {selectedSubBatch.claim_status === 'unassigned' && (
+                        <button
+                          onClick={() => handleClaimSubBatch(selectedSubBatch.id)}
+                          className="w-full py-2 bg-resq-primary hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-all shadow-xs flex items-center justify-center space-x-1.5"
+                        >
+                          <i data-lucide="hand-metal" className="w-4 h-4"></i>
+                          <span>Claim Micro-Batch as Courier</span>
+                        </button>
+                      )}
+
+                      {/* Reserved / In-Transit -> Heartbeat & OTP Verification */}
+                      {(selectedSubBatch.claim_status === 'reserved' || selectedSubBatch.claim_status === 'in_transit' || selectedSubBatch.claim_status === 'rerouted') && (
+                        <div className="space-y-2">
+                          <button
+                            onClick={() => handleSendHeartbeat(selectedSubBatch.id)}
+                            className="w-full py-1.5 bg-emerald-50 text-resq-green border border-emerald-200 hover:bg-emerald-100 rounded-lg font-semibold text-xs transition-all flex items-center justify-center space-x-1"
+                          >
+                            <i data-lucide="activity" className="w-3.5 h-3.5"></i>
+                            <span>Transmit Dead-Man Heartbeat</span>
+                          </button>
+
+                          {/* OTP Verification Input */}
+                          <div className="bg-resq-pale p-2.5 rounded-lg border border-resq-border space-y-1.5">
+                            <label className="text-[11px] font-semibold text-resq-navy block">
+                              {selectedSubBatch.claim_status === 'reserved' ? 'Verify Pickup OTP (from Kitchen)' : 'Verify Dropoff OTP (from Shelter)'}
+                            </label>
+                            <div className="flex space-x-1.5">
+                              <input
+                                type="text"
+                                maxLength={4}
+                                placeholder={selectedSubBatch.claim_status === 'reserved' ? `Hint: ${selectedSubBatch.pickup_otp}` : `Hint: ${selectedSubBatch.dropoff_otp}`}
+                                value={otpInput}
+                                onChange={(e) => setOtpInput(e.target.value)}
+                                className="flex-1 px-2.5 py-1 text-xs border border-resq-border rounded font-mono text-center tracking-widest focus:outline-none focus:border-resq-primary"
+                              />
+                              <button
+                                onClick={() => selectedSubBatch.claim_status === 'reserved' ? handleVerifyPickup(selectedSubBatch.id) : handleVerifyDropoff(selectedSubBatch.id)}
+                                className="px-3 py-1 bg-resq-navy text-white text-xs font-semibold rounded hover:bg-slate-800"
+                              >
+                                Verify
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Dynamic Mid-Journey Reroute Button */}
+                      <div className="flex space-x-2 pt-1">
+                        <button
+                          onClick={() => handleRerouteSubBatch(selectedSubBatch.id)}
+                          className="flex-1 py-1.5 bg-white border border-resq-border hover:bg-gray-50 text-resq-navy text-xs font-semibold rounded-lg flex items-center justify-center space-x-1"
+                          title="Reroute to fallback shelter if primary is saturated"
+                        >
+                          <i data-lucide="refresh-cw" className="w-3.5 h-3.5 text-resq-primary"></i>
+                          <span>Fallback Reroute</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setSubBatches(prev => prev.map(s => s.id === selectedSubBatch.id ? { ...s, claim_status: 'at_risk' } : s));
+                            showAlert('MARKED AS AT RISK', `Dispatcher alerted to assist courier on ${selectedSubBatch.id}`, 'warning');
+                          }}
+                          className="px-3 py-1.5 bg-amber-50 border border-amber-200 text-resq-amber hover:bg-amber-100 text-xs font-semibold rounded-lg"
+                        >
+                          Mark At-Risk
+                        </button>
+                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* Sub-Batches Quick Selection Queue */}
+                  <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs space-y-2">
+                    <h3 className="text-xs font-bold text-resq-navy flex items-center justify-between">
+                      <span>Active Sub-Batches ({subBatches.length})</span>
+                      <span className="text-[10px] text-resq-slate font-mono">&lt;= 40 Units Each</span>
+                    </h3>
+
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {subBatches.map(sb => {
+                        const isSelected = sb.id === selectedSubBatchId;
+                        return (
+                          <div
+                            key={sb.id}
+                            onClick={() => setSelectedSubBatchId(sb.id)}
+                            className={`p-2 rounded-lg border text-xs cursor-pointer transition-all flex items-center justify-between ${
+                              isSelected
+                                ? 'bg-resq-ice border-resq-primary shadow-xs'
+                                : 'bg-slate-50 border-resq-border hover:bg-white'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex items-center space-x-1.5">
+                                <span className="font-mono font-bold text-resq-navy">{sb.id}</span>
+                                <span className="font-semibold text-resq-slate">({sb.units}u)</span>
+                              </div>
+                              <div className="text-[10px] text-resq-slate truncate max-w-[150px]">
+                                {shelters.find(s => s.id === sb.shelter_id)?.name || 'Unassigned'}
+                              </div>
+                            </div>
+
+                            <div className="text-right">
+                              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded uppercase ${
+                                sb.claim_status === 'in_transit' ? 'bg-blue-100 text-resq-primary' :
+                                sb.claim_status === 'delivered' ? 'bg-emerald-100 text-resq-green' :
+                                sb.claim_status === 'at_risk' ? 'bg-red-100 text-resq-red' :
+                                'bg-gray-200 text-gray-700'
+                              }`}>
+                                {sb.claim_status}
+                              </span>
+                              <div className="font-mono text-[10px] text-resq-slate mt-0.5">
+                                {getTimeRemaining(sb.expires_at).formatted}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+            )}
+
+            {/* TAB CONTENT: AID BATCHES INVENTORY */}
+            {currentTab === 'batches' && (
+              <div className="bg-white p-6 rounded-xl border border-resq-border shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-resq-border pb-4">
+                  <div>
+                    <h2 className="text-lg font-bold text-resq-navy">Perishable Aid Inventory & Dynamic Splitter</h2>
+                    <p className="text-xs text-resq-slate">
+                      Bulk donations fragmented into safe scooter payload capacity (&le; 40 units) with verified utility matches
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setNewBatchModalOpen(true)}
+                    className="px-3.5 py-2 bg-resq-primary text-white font-semibold text-xs rounded-lg hover:bg-blue-700 shadow-xs flex items-center space-x-1.5"
+                  >
+                    <i data-lucide="plus" className="w-4 h-4"></i>
+                    <span>Register Bulk Donation</span>
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-resq-pale border-b border-resq-border text-resq-slate font-semibold">
+                        <th className="py-2.5 px-3">Batch ID</th>
+                        <th className="py-2.5 px-3">Donor Source</th>
+                        <th className="py-2.5 px-3">Cargo Type</th>
+                        <th className="py-2.5 px-3">Total Volume</th>
+                        <th className="py-2.5 px-3">Shelf Life Window</th>
+                        <th className="py-2.5 px-3">Required Utilities</th>
+                        <th className="py-2.5 px-3">Status</th>
+                        <th className="py-2.5 px-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-resq-border">
+                      {batches.map(batch => (
+                        <tr key={batch.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-3 px-3 font-mono font-bold text-resq-navy">{batch.id}</td>
+                          <td className="py-3 px-3 font-medium text-resq-navy">{batch.donor_name}</td>
+                          <td className="py-3 px-3 capitalize">{batch.cargo_type.replace('_', ' ')}</td>
+                          <td className="py-3 px-3 font-mono font-bold text-resq-primary">{batch.total_units} units</td>
+                          <td className="py-3 px-3 font-mono">{getTimeRemaining(batch.expires_at).formatted} left</td>
+                          <td className="py-3 px-3">
+                            <div className="flex space-x-1">
+                              {batch.dependencies.map(d => (
+                                <span key={d} className="px-1.5 py-0.5 bg-blue-50 text-resq-primary rounded text-[10px] font-mono">
+                                  {d}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-emerald-50 text-resq-green border border-emerald-200">
+                              {batch.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <button
+                              onClick={() => {
+                                setSelectedSubBatchId(subBatches.find(s => s.parent_batch_id === batch.id)?.id || subBatches[0].id);
+                                setCurrentTab('overview');
+                              }}
+                              className="text-resq-primary hover:underline font-semibold"
+                            >
+                              Inspect Micro-Loads &rarr;
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT: SHELTER GRID */}
+            {currentTab === 'shelters' && (
+              <div className="bg-white p-6 rounded-xl border border-resq-border shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-resq-border pb-4">
+                  <div>
+                    <h2 className="text-lg font-bold text-resq-navy">Humanitarian Shelter Grid Telemetry</h2>
+                    <p className="text-xs text-resq-slate">
+                      Real-time capacity tracking, walk-in saturation interception, and lifeline utility status
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {shelters.map(shelter => (
+                    <div key={shelter.id} className="p-4 rounded-xl border border-resq-border bg-slate-50 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h3 className="font-bold text-resq-navy text-sm">{shelter.name}</h3>
+                          <span className="text-[11px] text-resq-slate font-mono">Lat: {shelter.lat}, Lng: {shelter.lng}</span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                          shelter.status === 'open' ? 'bg-emerald-100 text-resq-green' : 'bg-red-100 text-resq-red'
+                        }`}>
+                          {shelter.status}
+                        </span>
+                      </div>
+
+                      {/* Capacity Progress Bar */}
+                      <div>
+                        <div className="flex justify-between text-xs text-resq-slate mb-1">
+                          <span>Remaining Bed / Intake Capacity</span>
+                          <span className="font-mono font-bold text-resq-navy">{shelter.capacity_remaining} / {shelter.capacity_total}</span>
+                        </div>
+                        <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${shelter.capacity_remaining < 30 ? 'bg-resq-orange' : 'bg-resq-green'}`}
+                            style={{ width: `${(shelter.capacity_remaining / shelter.capacity_total) * 100}%` }}
+                          ></div>
+                        </div>
+                      </div>
+
+                      {/* Utility Flags */}
+                      <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
+                        <span className="text-resq-slate">Utilities:</span>
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${shelter.utilities.clean_water ? 'bg-blue-100 text-resq-primary' : 'bg-red-100 text-resq-red'}`}>
+                            {shelter.utilities.clean_water ? '💧 Clean Water' : '❌ No Water'}
+                          </span>
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${shelter.utilities.cooking_fuel ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-resq-red'}`}>
+                            {shelter.utilities.cooking_fuel ? '🔥 Fuel' : '❌ No Fuel'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT: CHAOS SIMULATOR DECK */}
+            {currentTab === 'chaos' && (
+              <div className="bg-white p-6 rounded-xl border border-resq-border shadow-xs space-y-6">
+                <div className="flex items-center justify-between border-b border-resq-border pb-4">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-resq-red animate-ping"></span>
+                      <h2 className="text-lg font-bold text-resq-navy">Disaster Chaos Simulator Deck (Admin Only)</h2>
+                    </div>
+                    <p className="text-xs text-resq-slate">
+                      Stress-test the autonomous logistics engine against real-world catastrophic failure modes
+                    </p>
+                  </div>
+                  <button
+                    onClick={resetChaosSim}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-resq-navy font-semibold text-xs rounded-lg transition-all"
+                  >
+                    Reset Environment
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  
+                  {/* Chaos 1: Ghost Rider Dead-Man */}
+                  <div className="p-4 rounded-xl border border-resq-border bg-amber-50/50 space-y-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center space-x-2 text-resq-amber font-bold text-sm mb-1">
+                        <i data-lucide="user-x" className="w-4 h-4"></i>
+                        <span>Ghost Rider Simulator</span>
+                      </div>
+                      <p className="text-xs text-resq-slate">
+                        Simulates a courier becoming incapacitated or battery dying mid-route. Forces heartbeat &gt; 5 minutes old to trigger the Dead-Man auto-revocation sweeper.
+                      </p>
+                    </div>
+                    <button
+                      onClick={triggerChaosGhostRider}
+                      className="w-full py-2 bg-resq-amber hover:bg-amber-600 text-white font-semibold text-xs rounded-lg shadow-xs"
+                    >
+                      Trigger Ghost Rider
+                    </button>
+                  </div>
+
+                  {/* Chaos 2: Shelter Saturation */}
+                  <div className="p-4 rounded-xl border border-resq-border bg-red-50/50 space-y-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center space-x-2 text-resq-red font-bold text-sm mb-1">
+                        <i data-lucide="building-2" className="w-4 h-4"></i>
+                        <span>Mid-Journey Saturation</span>
+                      </div>
+                      <p className="text-xs text-resq-slate">
+                        Simulates an unannounced influx of 150 offline walk-ins saturating a primary destination shelter, triggering the PostgreSQL trigger to reroute in-transit bikes.
+                      </p>
+                    </div>
+                    <button
+                      onClick={triggerChaosShelterSaturation}
+                      className="w-full py-2 bg-resq-red hover:bg-red-700 text-white font-semibold text-xs rounded-lg shadow-xs"
+                    >
+                      Saturate Shelter
+                    </button>
+                  </div>
+
+                  {/* Chaos 3: Flash Flood Road Submerging */}
+                  <div className="p-4 rounded-xl border border-resq-border bg-blue-50/50 space-y-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center space-x-2 text-resq-primary font-bold text-sm mb-1">
+                        <i data-lucide="waves" className="w-4 h-4"></i>
+                        <span>Flash Flood Detour</span>
+                      </div>
+                      <p className="text-xs text-resq-slate">
+                        Sets road segment weight to &infin; (Infinity). The client-side Dijkstra solver instantly computes a safe elevation-based dry detour without network connectivity.
+                      </p>
+                    </div>
+                    <button
+                      onClick={triggerChaosSubmergeRoad}
+                      className="w-full py-2 bg-resq-primary hover:bg-blue-700 text-white font-semibold text-xs rounded-lg shadow-xs"
+                    >
+                      Submerge Roadway Edge
+                    </button>
+                  </div>
+
+                  {/* Chaos 4: Utility Failure */}
+                  <div className="p-4 rounded-xl border border-resq-border bg-purple-50/50 space-y-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center space-x-2 text-resq-indigo font-bold text-sm mb-1">
+                        <i data-lucide="flame" className="w-4 h-4"></i>
+                        <span>Utility Lifeline Failure</span>
+                      </div>
+                      <p className="text-xs text-resq-slate">
+                        Cuts cooking fuel and potable water at a shelter to verify dependency enforcement (rejecting raw grains and infant formula from being dispatched).
+                      </p>
+                    </div>
+                    <button
+                      onClick={triggerChaosUtilityOutage}
+                      className="w-full py-2 bg-resq-indigo hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg shadow-xs"
+                    >
+                      Sever Shelter Utilities
+                    </button>
+                  </div>
+
+                </div>
+
+                {/* Audit Telemetry Logs Stream */}
+                <div className="border-t border-resq-border pt-4">
+                  <h3 className="text-xs font-bold text-resq-navy mb-2 flex items-center justify-between">
+                    <span>Operational Audit Telemetry & Real-Time Events</span>
+                    <span className="font-mono text-[10px] text-resq-slate">Latest 50 events</span>
+                  </h3>
+                  <div className="bg-slate-900 text-slate-100 p-3 rounded-lg font-mono text-xs max-h-56 overflow-y-auto space-y-1">
+                    {auditLogs.map(log => (
+                      <div key={log.id} className="flex space-x-2 text-[11px] leading-relaxed">
+                        <span className="text-slate-400">[{log.time}]</span>
+                        <span className="text-emerald-400 font-bold">{log.event}:</span>
+                        <span className="text-slate-200">{log.details}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* AUDIT LOG BAR AT BOTTOM OF OVERVIEW */}
+            {currentTab === 'overview' && (
+              <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
+                <div className="flex items-center justify-between text-xs font-bold text-resq-navy mb-2">
+                  <div className="flex items-center space-x-2">
+                    <span className="w-2 h-2 rounded-full bg-resq-green animate-pulse"></span>
+                    <span>Recent Operational Event Stream</span>
+                  </div>
+                  <span className="font-mono text-[11px] text-resq-slate">Live Telemetry</span>
+                </div>
+                <div className="space-y-1.5 max-h-24 overflow-y-auto pr-2">
+                  {auditLogs.slice(0, 3).map(log => (
+                    <div key={log.id} className="text-xs flex items-center space-x-3 text-resq-slate">
+                      <span className="font-mono text-resq-navy font-semibold">[{log.time}]</span>
+                      <span className="font-semibold text-resq-primary">{log.event}</span>
+                      <span className="truncate">{log.details}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+          </main>
+
+          {/* ===================================================================
+              MODAL: REGISTER BULK PERISHABLE AID DONATION
+          =================================================================== */}
+          {newBatchModalOpen && (
+            <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl border border-resq-border shadow-2xl max-w-md w-full p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-resq-border pb-3">
+                  <h3 className="font-bold text-base text-resq-navy">Register Bulk Aid Donation</h3>
+                  <button onClick={() => setNewBatchModalOpen(false)} className="text-resq-slate hover:text-resq-navy">
+                    <i data-lucide="x" className="w-4 h-4"></i>
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateAndSplitBatch} className="space-y-3 text-xs">
+                  <div>
+                    <label className="font-semibold text-resq-navy block mb-1">Cargo Type</label>
+                    <select
+                      value={newBatchForm.cargo_type}
+                      onChange={e => setNewBatchForm({ ...newBatchForm, cargo_type: e.target.value })}
+                      className="w-full px-3 py-2 border border-resq-border rounded-lg focus:outline-none focus:border-resq-primary text-xs"
+                    >
+                      <option value="cooked_meals">Cooked Prepared Meals (High Perishable)</option>
+                      <option value="raw_rations">Raw Rations / Rice & Grain (Requires Cooking Fuel)</option>
+                      <option value="infant_formula">Infant Formula (Requires Clean Water)</option>
+                      <option value="medical_kits">Emergency First Aid Kits</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-semibold text-resq-navy block mb-1">Total Quantity (Units)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={newBatchForm.total_units}
+                        onChange={e => setNewBatchForm({ ...newBatchForm, total_units: e.target.value })}
+                        className="w-full px-3 py-2 border border-resq-border rounded-lg font-mono focus:outline-none focus:border-resq-primary text-xs"
+                        required
+                      />
+                      <span className="text-[10px] text-resq-slate">Auto-split &le; 40 units</span>
+                    </div>
+
+                    <div>
+                      <label className="font-semibold text-resq-navy block mb-1">Safe Shelf Life (Minutes)</label>
+                      <input
+                        type="number"
+                        min="10"
+                        value={newBatchForm.shelf_life_minutes}
+                        onChange={e => setNewBatchForm({ ...newBatchForm, shelf_life_minutes: e.target.value })}
+                        className="w-full px-3 py-2 border border-resq-border rounded-lg font-mono focus:outline-none focus:border-resq-primary text-xs"
+                        required
+                      />
+                      <span className="text-[10px] text-resq-orange">Strict decay deadline</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-resq-navy block mb-1">Pickup Address</label>
+                    <input
+                      type="text"
+                      value={newBatchForm.pickup_address}
+                      onChange={e => setNewBatchForm({ ...newBatchForm, pickup_address: e.target.value })}
+                      className="w-full px-3 py-2 border border-resq-border rounded-lg focus:outline-none focus:border-resq-primary text-xs"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5 pt-1">
+                    <label className="font-semibold text-resq-navy block">Shelter Utility Dependencies</label>
+                    <div className="flex items-center space-x-4">
+                      <label className="flex items-center space-x-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newBatchForm.clean_water}
+                          onChange={e => setNewBatchForm({ ...newBatchForm, clean_water: e.target.checked })}
+                          className="rounded text-resq-primary"
+                        />
+                        <span>Requires Potable Water</span>
+                      </label>
+                      <label className="flex items-center space-x-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newBatchForm.cooking_fuel}
+                          onChange={e => setNewBatchForm({ ...newBatchForm, cooking_fuel: e.target.checked })}
+                          className="rounded text-resq-primary"
+                        />
+                        <span>Requires Cooking Fuel</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-resq-border flex space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewBatchModalOpen(false)}
+                      className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-resq-navy rounded-lg font-semibold text-xs"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-2 bg-resq-primary hover:bg-blue-700 text-white rounded-lg font-semibold text-xs shadow-xs"
+                    >
+                      Auto-Split & Assign
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    // Render the React Application
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
