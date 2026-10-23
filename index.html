@@ -463,6 +463,72 @@
         return () => clearInterval(interval);
       }, []);
 
+      // Live Autonomous Dispatch Worker & Delivery Progression Simulator
+      useEffect(() => {
+        const liveSimInterval = setInterval(() => {
+          const now = Date.now();
+          
+          setSubBatches(prev => {
+            if (prev.length === 0) return prev;
+            
+            // Check if there are unassigned sub-batches and claim them by volunteer network
+            const unassignedIdx = prev.findIndex(s => s.claim_status === 'unassigned');
+            if (unassignedIdx !== -1 && Math.random() > 0.45) {
+              const riderNames = [
+                'Courier Alex (E-Bike 04)',
+                'Volunteer Marcus (Scooter 12)',
+                'Rider Priya (Cargo Bike 07)',
+                'Courier Dave (Vespa 09)',
+                'Volunteer Elena (Bike 15)'
+              ];
+              const randomRider = riderNames[Math.floor(Math.random() * riderNames.length)];
+              const target = prev[unassignedIdx];
+              
+              const updated = [...prev];
+              updated[unassignedIdx] = {
+                ...target,
+                claim_status: 'in_transit',
+                rider_id: 'r-' + Math.floor(100 + Math.random() * 900),
+                rider_name: randomRider,
+                claimed_at: new Date().toISOString(),
+                heartbeat_at: new Date().toISOString()
+              };
+              addLog('LIVE_AUTO_DISPATCH', `${randomRider} accepted payload ${target.id} (${target.units} meals) for immediate transit.`);
+              return updated;
+            }
+
+            // Periodically complete in-transit deliveries
+            const inTransitIdx = prev.findIndex(s => s.claim_status === 'in_transit' || s.claim_status === 'rerouted');
+            if (inTransitIdx !== -1 && Math.random() > 0.6) {
+              const target = prev[inTransitIdx];
+              const updated = [...prev];
+              updated[inTransitIdx] = {
+                ...target,
+                claim_status: 'delivered'
+              };
+              
+              // Increment shelter capacity consumed
+              setShelters(sheltersPrev => sheltersPrev.map(sh => {
+                if (sh.id === target.shelter_id) {
+                  return {
+                    ...sh,
+                    capacity_remaining: Math.max(0, sh.capacity_remaining - target.units)
+                  };
+                }
+                return sh;
+              }));
+
+              addLog('LIVE_DELIVERY_SUCCESS', `Payload ${target.id} (${target.units} meals) delivered to destination shelter.`);
+              return updated;
+            }
+
+            return prev;
+          });
+        }, 4000);
+
+        return () => clearInterval(liveSimInterval);
+      }, []);
+
       // Live Courier GPS Simulation: Smooth movement along route
       useEffect(() => {
         if (!isTelemetryLive) return;
@@ -989,12 +1055,17 @@
 
       }, [shelters, roadGraph, selectedSubBatchId, dijkstraSolution, courierPosition, isTelemetryLive]);
 
-      // Metrics Computation
+      // Metrics Computation (Live Realtime Telemetry)
       const metrics = useMemo(() => {
-        const activeDeliveries = subBatches.filter(s => s.claim_status === 'in_transit').length;
+        const activeDeliveries = subBatches.filter(s => s.claim_status === 'in_transit' || s.claim_status === 'reserved' || s.claim_status === 'rerouted').length;
         const awaitingDispatch = subBatches.filter(s => s.claim_status === 'unassigned').length;
-        const atRiskCount = subBatches.filter(s => s.claim_status === 'at_risk' || (new Date(s.expires_at).getTime() - Date.now() < 20 * 60000 && s.claim_status !== 'delivered')).length;
-        const availableRiders = 14;
+        const now = Date.now();
+        const atRiskCount = subBatches.filter(s => 
+          s.claim_status === 'at_risk' || 
+          (new Date(s.expires_at).getTime() - now < 30 * 60000 && s.claim_status !== 'delivered' && s.claim_status !== 'expired')
+        ).length;
+        const activeRidersCount = subBatches.filter(s => s.rider_id).length;
+        const availableRiders = Math.max(2, 18 - activeRidersCount);
         const totalCapacityRemaining = shelters.reduce((acc, s) => acc + s.capacity_remaining, 0);
 
         return { activeDeliveries, awaitingDispatch, atRiskCount, availableRiders, totalCapacityRemaining };
