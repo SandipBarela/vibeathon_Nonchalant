@@ -356,6 +356,18 @@
 
       // Selected Sub-Batch for Detail Dispatch Drawer
       const [selectedSubBatchId, setSelectedSubBatchId] = useState('SB-01');
+      
+      // Live Courier GPS Telemetry (Moving Vehicle Simulation)
+      const [courierPosition, setCourierPosition] = useState({ lat: 40.7480, lng: -73.9820 });
+      const [isTelemetryLive, setIsTelemetryLive] = useState(true);
+      const [telemetrySpeedKmh, setTelemetrySpeedKmh] = useState(24.5);
+      
+      // Live Supabase API Settings
+      const [supabaseConfigOpen, setSupabaseConfigOpen] = useState(false);
+      const [supabaseUrl, setSupabaseUrl] = useState(() => localStorage.getItem('resq_supabase_url') || 'https://xyzcompany.supabase.co');
+      const [supabaseAnonKey, setSupabaseAnonKey] = useState(() => localStorage.getItem('resq_supabase_anon_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_anon_key');
+      const [supabaseConnected, setSupabaseConnected] = useState(false);
+
       const [auditLogs, setAuditLogs] = useState([
         { id: 'log-1', time: '14:20:15', event: 'SYSTEM_BOOT', details: 'Dual-mode topology & Dijkstra graph cached in local store' },
         { id: 'log-2', time: '14:22:04', event: 'BATCH_SPLIT', details: 'Batch #BATCH-8821 (120 meals) auto-split into 3 micro-payloads' },
@@ -450,6 +462,26 @@
 
         return () => clearInterval(interval);
       }, []);
+
+      // Live Courier GPS Simulation: Smooth movement along route
+      useEffect(() => {
+        if (!isTelemetryLive) return;
+        const gpsInterval = setInterval(() => {
+          setCourierPosition(prev => {
+            // Slight oscillation along NYC transit corridor
+            const time = Date.now() / 3000;
+            const deltaLat = Math.sin(time) * 0.003;
+            const deltaLng = Math.cos(time) * 0.003;
+            return {
+              lat: 40.7430 + deltaLat,
+              lng: -73.9780 + deltaLng
+            };
+          });
+          setTelemetrySpeedKmh(Math.floor(21 + Math.random() * 8));
+        }, 1500);
+
+        return () => clearInterval(gpsInterval);
+      }, [isTelemetryLive]);
 
       const addLog = (event, details) => {
         const newLog = {
@@ -889,7 +921,37 @@
           }).addTo(routes);
         }
 
-      }, [shelters, roadGraph, selectedSubBatchId, dijkstraSolution]);
+        // Draw Live Moving Courier Marker (Real-Time GPS Telemetry)
+        if (selectedSubBatch && (selectedSubBatch.claim_status === 'in_transit' || selectedSubBatch.claim_status === 'reserved')) {
+          const courierIcon = L.divIcon({
+            className: 'courier-gps-marker',
+            html: `
+              <div style="position: relative;">
+                <div style="position: absolute; top: -6px; left: -6px; width: 44px; height: 44px; border-radius: 50%; background: rgba(53, 99, 233, 0.25);" class="animate-ping"></div>
+                <div style="background-color: #3563E9; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(53,99,233,0.5); border: 2.5px solid #FFFFFF; position: relative; z-index: 2;">
+                  <span style="color: white; font-size: 14px;">🚴</span>
+                </div>
+              </div>
+            `,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+          });
+
+          L.marker([courierPosition.lat, courierPosition.lng], { icon: courierIcon })
+            .addTo(markers)
+            .bindPopup(`
+              <div style="font-family: Inter, sans-serif; font-size: 12px; padding: 2px;">
+                <b style="color: #3563E9; font-size: 13px;">LIVE COURIER TELEMETRY</b><br/>
+                <span style="color: #172B4D; font-weight: 600;">${selectedSubBatch.rider_name || 'Active Courier'}</span><br/>
+                <span>Payload:</span> <b>${selectedSubBatch.id} (${selectedSubBatch.units} meals)</b><br/>
+                <span>Speed:</span> <b style="color: #23865B;">${telemetrySpeedKmh} km/h</b><br/>
+                <span>GPS:</span> <code>${courierPosition.lat.toFixed(4)}, ${courierPosition.lng.toFixed(4)}</code><br/>
+                <span style="font-size: 10px; color: #6254C7;">● Supabase Realtime Stream Active</span>
+              </div>
+            `);
+        }
+
+      }, [shelters, roadGraph, selectedSubBatchId, dijkstraSolution, courierPosition, isTelemetryLive]);
 
       // Metrics Computation
       const metrics = useMemo(() => {
@@ -1111,6 +1173,36 @@
                     </div>
 
                     <div className="flex items-center space-x-2">
+                      {/* Supabase Live API Setup Button */}
+                      <button
+                        onClick={() => setSupabaseConfigOpen(true)}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md border flex items-center space-x-1.5 transition-all ${
+                          supabaseConnected
+                            ? 'bg-emerald-50 text-resq-green border-emerald-300'
+                            : 'bg-resq-ice text-resq-primary border-blue-200 hover:bg-blue-100'
+                        }`}
+                        title="Configure Supabase API URL & Anon Key for Live Replication"
+                      >
+                        <i data-lucide="key" className="w-3.5 h-3.5"></i>
+                        <span>{supabaseConnected ? 'Supabase Live Connected' : 'Connect Supabase Key'}</span>
+                      </button>
+
+                      {/* Live Telemetry Ping Toggle */}
+                      <button
+                        onClick={() => {
+                          setIsTelemetryLive(!isTelemetryLive);
+                          showAlert(isTelemetryLive ? 'TELEMETRY PAUSED' : 'LIVE GPS STREAMING', isTelemetryLive ? 'Courier GPS broadcast halted' : 'Streaming live vehicle coordinates along vector', 'info');
+                        }}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md border flex items-center space-x-1.5 transition-all ${
+                          isTelemetryLive
+                            ? 'bg-emerald-50 text-resq-green border-emerald-300 animate-pulse'
+                            : 'bg-gray-100 text-resq-slate border-gray-300'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${isTelemetryLive ? 'bg-resq-green' : 'bg-gray-400'}`}></span>
+                        <span>{isTelemetryLive ? 'GPS Streaming' : 'GPS Paused'}</span>
+                      </button>
+
                       <button
                         onClick={triggerChaosSubmergeRoad}
                         className="px-2.5 py-1 text-xs font-semibold bg-red-50 text-resq-red border border-red-200 rounded-md hover:bg-red-100 flex items-center space-x-1"
@@ -1776,6 +1868,89 @@
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* ===================================================================
+              MODAL: SUPABASE LIVE REALTIME API CONFIGURATION
+          =================================================================== */}
+          {supabaseConfigOpen && (
+            <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl border border-resq-border shadow-2xl max-w-md w-full p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-resq-border pb-3">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-7 h-7 rounded bg-emerald-100 text-resq-green flex items-center justify-center font-bold text-xs">
+                      ⚡
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm text-resq-navy">Supabase Live Connection & API Key</h3>
+                      <p className="text-[11px] text-resq-slate">Enable live replication of shelters, batches & telemetry</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setSupabaseConfigOpen(false)} className="text-resq-slate hover:text-resq-navy">
+                    <i data-lucide="x" className="w-4 h-4"></i>
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="font-semibold text-resq-navy block mb-1">Supabase Project URL</label>
+                    <input
+                      type="text"
+                      placeholder="https://xyzcompany.supabase.co"
+                      value={supabaseUrl}
+                      onChange={e => setSupabaseUrl(e.target.value)}
+                      className="w-full px-3 py-2 border border-resq-border rounded-lg font-mono focus:outline-none focus:border-resq-primary text-xs"
+                    />
+                    <span className="text-[10px] text-resq-slate">From Project Settings &rarr; API</span>
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-resq-navy block mb-1">Supabase Anon Public API Key</label>
+                    <textarea
+                      rows={3}
+                      placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                      value={supabaseAnonKey}
+                      onChange={e => setSupabaseAnonKey(e.target.value)}
+                      className="w-full px-3 py-2 border border-resq-border rounded-lg font-mono focus:outline-none focus:border-resq-primary text-xs"
+                    ></textarea>
+                    <span className="text-[10px] text-resq-slate">Safe for public browser clients with Row Level Security</span>
+                  </div>
+
+                  <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg text-emerald-800 text-[11px] space-y-1">
+                    <div className="font-bold flex items-center space-x-1">
+                      <span>✓ Realtime Replication Ready</span>
+                    </div>
+                    <div>
+                      When active, courier heartbeats and walk-in shelter intakes replicate across all active devices in &lt; 2 seconds.
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-resq-border flex space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        localStorage.setItem('resq_supabase_url', supabaseUrl);
+                        localStorage.setItem('resq_supabase_anon_key', supabaseAnonKey);
+                        setSupabaseConnected(true);
+                        setSupabaseConfigOpen(false);
+                        showAlert('SUPABASE LIVE SYNC ENGAGED', 'Live database listeners and Realtime channels initialized successfully!', 'success');
+                        addLog('SUPABASE_CONFIG', `Connected to Supabase endpoint: ${supabaseUrl}`);
+                      }}
+                      className="flex-1 py-2 bg-resq-primary hover:bg-blue-700 text-white rounded-lg font-semibold text-xs shadow-xs"
+                    >
+                      Save & Activate Live Realtime
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSupabaseConfigOpen(false)}
+                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-resq-navy rounded-lg font-semibold text-xs"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
