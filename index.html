@@ -1007,31 +1007,33 @@
               </div>
             </div>
 
-            {/* Navigation Tabs */}
+            {/* Role-Specific Navigation Tabs */}
             <nav className="hidden md:flex items-center space-x-1 bg-resq-pale p-1 rounded-lg border border-resq-border text-sm font-medium">
               {[
-                { id: 'overview', label: 'Overview', icon: 'layout-dashboard' },
-                { id: 'batches', label: 'Aid Batches', icon: 'box' },
-                { id: 'dispatch', label: 'Live Dispatch', icon: 'navigation' },
-                { id: 'shelters', label: 'Shelter Grid', icon: 'home' },
-                { id: 'chaos', label: 'Chaos Deck', icon: 'zap' }
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setCurrentTab(tab.id)}
-                  className={`flex items-center space-x-2 px-3 py-1.5 rounded-md transition-all ${
-                    currentTab === tab.id
-                      ? 'bg-white text-resq-primary shadow-xs font-semibold'
-                      : 'text-resq-slate hover:text-resq-navy'
-                  }`}
-                >
-                  <i data-lucide={tab.icon} className="w-4 h-4"></i>
-                  <span>{tab.label}</span>
-                </button>
-              ))}
+                { id: 'overview', label: currentRole === 'rider' ? 'Rider Console' : currentRole === 'donor' ? 'Donor Portal' : currentRole === 'shelter' ? 'Shelter Manager' : 'Overview', icon: currentRole === 'rider' ? 'bike' : currentRole === 'donor' ? 'heart-handshake' : currentRole === 'shelter' ? 'building' : 'layout-dashboard', roles: ['admin', 'rider', 'donor', 'shelter'] },
+                { id: 'batches', label: 'Aid Batches', icon: 'box', roles: ['admin', 'donor'] },
+                { id: 'dispatch', label: 'Live Dispatch', icon: 'navigation', roles: ['admin', 'rider'] },
+                { id: 'shelters', label: 'Shelter Grid', icon: 'home', roles: ['admin', 'shelter'] },
+                { id: 'chaos', label: 'Chaos Deck', icon: 'zap', roles: ['admin'] }
+              ]
+                .filter(tab => tab.roles.includes(currentRole))
+                .map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setCurrentTab(tab.id)}
+                    className={`flex items-center space-x-2 px-3 py-1.5 rounded-md transition-all ${
+                      currentTab === tab.id
+                        ? 'bg-white text-resq-primary shadow-xs font-semibold'
+                        : 'text-resq-slate hover:text-resq-navy'
+                    }`}
+                  >
+                    <i data-lucide={tab.icon} className="w-4 h-4"></i>
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
             </nav>
 
-            {/* Network State & Role Selector */}
+            {/* Network State & Role Switcher */}
             <div className="flex items-center space-x-3">
               {/* Network Toggle Button */}
               <button
@@ -1052,19 +1054,31 @@
                 )}
               </button>
 
-              {/* Role Switcher */}
-              <div className="flex items-center bg-gray-100 p-0.5 rounded-md border border-gray-200 text-xs">
-                {['admin', 'rider', 'donor', 'shelter'].map(role => (
+              {/* Role Switcher with Active Indicator */}
+              <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200 text-xs">
+                {[
+                  { role: 'admin', label: 'Admin', icon: 'shield' },
+                  { role: 'rider', label: 'Rider', icon: 'bike' },
+                  { role: 'donor', label: 'Donor', icon: 'heart-handshake' },
+                  { role: 'shelter', label: 'Shelter', icon: 'home' }
+                ].map(item => (
                   <button
-                    key={role}
-                    onClick={() => setCurrentRole(role)}
-                    className={`px-2.5 py-1 rounded text-xs capitalize transition-all ${
-                      currentRole === role
-                        ? 'bg-white text-resq-navy font-semibold shadow-xs'
+                    key={item.role}
+                    onClick={() => {
+                      setCurrentRole(item.role);
+                      if (item.role === 'donor') setCurrentTab('batches');
+                      else if (item.role === 'rider') setCurrentTab('dispatch');
+                      else if (item.role === 'shelter') setCurrentTab('shelters');
+                      else setCurrentTab('overview');
+                      showAlert(`ROLE SWITCHED: ${item.label.toUpperCase()}`, `Interface customized with ${item.label}-specific controls and operational views.`, 'info');
+                    }}
+                    className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs capitalize transition-all font-medium ${
+                      currentRole === item.role
+                        ? 'bg-white text-resq-primary font-bold shadow-xs'
                         : 'text-resq-slate hover:text-resq-navy'
                     }`}
                   >
-                    {role}
+                    <span>{item.label}</span>
                   </button>
                 ))}
               </div>
@@ -1111,55 +1125,80 @@
           =================================================================== */}
           <main className="flex-1 p-6 space-y-6">
 
-            {/* KPI METRIC CARDS */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            {/* ROLE-SPECIFIC KPI METRIC CARDS */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              
+              {/* Card 1: Dynamic by Role */}
               <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
                 <div className="flex items-center justify-between text-resq-slate text-xs font-medium mb-1">
-                  <span>Active In-Transit</span>
-                  <i data-lucide="bike" className="w-4 h-4 text-resq-primary"></i>
+                  <span>{currentRole === 'rider' ? 'Your Assigned Payloads' : currentRole === 'donor' ? 'Donations Dispatched' : currentRole === 'shelter' ? 'Incoming In-Transit' : 'Active In-Transit'}</span>
+                  <i data-lucide={currentRole === 'rider' ? 'navigation' : currentRole === 'donor' ? 'gift' : 'bike'} className="w-4 h-4 text-resq-primary"></i>
                 </div>
-                <div className="text-2xl font-bold text-resq-navy font-mono">{metrics.activeDeliveries}</div>
+                <div className="text-2xl font-bold text-resq-navy font-mono">
+                  {currentRole === 'rider' ? subBatches.filter(s => s.rider_id === 'r-user-01' || s.rider_id === 'r-01').length : metrics.activeDeliveries}
+                </div>
                 <div className="text-[11px] text-resq-green font-medium flex items-center mt-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-resq-green mr-1"></span>
-                  Scooter payloads on-route
+                  {currentRole === 'rider' ? 'Active mission payload' : 'Scooter payloads on-route'}
                 </div>
               </div>
 
+              {/* Card 2: Dynamic by Role */}
               <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
                 <div className="flex items-center justify-between text-resq-slate text-xs font-medium mb-1">
-                  <span>Awaiting Dispatch</span>
-                  <i data-lucide="package-search" className="w-4 h-4 text-resq-orange"></i>
+                  <span>{currentRole === 'donor' ? 'Meals Donated Total' : currentRole === 'shelter' ? 'Remaining Intake Capacity' : 'Awaiting Dispatch'}</span>
+                  <i data-lucide={currentRole === 'donor' ? 'heart' : currentRole === 'shelter' ? 'users' : 'package-search'} className="w-4 h-4 text-resq-orange"></i>
                 </div>
-                <div className="text-2xl font-bold text-resq-navy font-mono">{metrics.awaitingDispatch}</div>
-                <div className="text-[11px] text-resq-slate font-medium mt-1">Available for courier claim</div>
+                <div className="text-2xl font-bold text-resq-navy font-mono">
+                  {currentRole === 'donor' ? batches.reduce((acc, b) => acc + Number(b.total_units), 0) : currentRole === 'shelter' ? metrics.totalCapacityRemaining : metrics.awaitingDispatch}
+                </div>
+                <div className="text-[11px] text-resq-slate font-medium mt-1">
+                  {currentRole === 'donor' ? 'Zero-waste cooked aid' : currentRole === 'shelter' ? 'Verified beds / meal slots' : 'Available for courier claim'}
+                </div>
               </div>
 
+              {/* Card 3: Dynamic by Role */}
               <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
                 <div className="flex items-center justify-between text-resq-slate text-xs font-medium mb-1">
-                  <span>At-Risk / Critical</span>
-                  <i data-lucide="clock-alert" className="w-4 h-4 text-resq-red"></i>
+                  <span>{currentRole === 'rider' ? 'Dead-Man Heartbeat' : currentRole === 'shelter' ? 'Saturated Shelters' : 'At-Risk / Critical'}</span>
+                  <i data-lucide={currentRole === 'rider' ? 'activity' : 'clock-alert'} className="w-4 h-4 text-resq-red"></i>
                 </div>
-                <div className="text-2xl font-bold text-resq-red font-mono">{metrics.atRiskCount}</div>
-                <div className="text-[11px] text-resq-red font-medium mt-1">Shelf life &lt; 20m or rerouting</div>
+                <div className="text-2xl font-bold text-resq-red font-mono">
+                  {currentRole === 'rider' ? '15s Active' : currentRole === 'shelter' ? shelters.filter(s => s.status === 'filled').length : metrics.atRiskCount}
+                </div>
+                <div className="text-[11px] text-resq-red font-medium mt-1">
+                  {currentRole === 'rider' ? 'Keeps reservation alive' : 'Requires emergency redirect'}
+                </div>
               </div>
 
+              {/* Card 4: Dynamic by Role */}
               <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
                 <div className="flex items-center justify-between text-resq-slate text-xs font-medium mb-1">
-                  <span>Available Couriers</span>
-                  <i data-lucide="users" className="w-4 h-4 text-resq-primary"></i>
+                  <span>{currentRole === 'shelter' ? 'Clean Water Utilities' : currentRole === 'donor' ? 'Active Batches' : 'Available Couriers'}</span>
+                  <i data-lucide={currentRole === 'shelter' ? 'droplets' : currentRole === 'donor' ? 'box' : 'users'} className="w-4 h-4 text-resq-primary"></i>
                 </div>
-                <div className="text-2xl font-bold text-resq-navy font-mono">{metrics.availableRiders}</div>
-                <div className="text-[11px] text-resq-slate font-medium mt-1">Ready for &lt;= 40 unit payloads</div>
+                <div className="text-2xl font-bold text-resq-navy font-mono">
+                  {currentRole === 'shelter' ? shelters.filter(s => s.utilities.clean_water).length : currentRole === 'donor' ? batches.length : metrics.availableRiders}
+                </div>
+                <div className="text-[11px] text-resq-slate font-medium mt-1">
+                  {currentRole === 'shelter' ? 'Operational survival hubs' : currentRole === 'donor' ? 'Registered for auto-split' : 'Ready for <= 40 unit payloads'}
+                </div>
               </div>
 
+              {/* Card 5: Net Capacity */}
               <div className="bg-white p-4 rounded-xl border border-resq-border shadow-xs">
                 <div className="flex items-center justify-between text-resq-slate text-xs font-medium mb-1">
-                  <span>Shelter Net Capacity</span>
+                  <span>{currentRole === 'rider' ? 'Next Delivery Shelter' : 'Shelter Net Capacity'}</span>
                   <i data-lucide="shield-check" className="w-4 h-4 text-resq-green"></i>
                 </div>
-                <div className="text-2xl font-bold text-resq-green font-mono">{metrics.totalCapacityRemaining}</div>
-                <div className="text-[11px] text-resq-slate font-medium mt-1">Open meal accommodation</div>
+                <div className="text-2xl font-bold text-resq-green font-mono">
+                  {currentRole === 'rider' ? (targetShelter?.name?.split(' ')[0] || 'Mercy') : metrics.totalCapacityRemaining}
+                </div>
+                <div className="text-[11px] text-resq-slate font-medium mt-1">
+                  {currentRole === 'rider' ? 'ETA: ' + (dijkstraSolution.totalMinutes ? `${dijkstraSolution.totalMinutes}m` : '18m') : 'Open meal accommodation'}
+                </div>
               </div>
+
             </div>
 
             {/* TAB CONTENT: OVERVIEW & LIVE DISPATCH MAP */}
@@ -1363,77 +1402,179 @@
                       )}
                     </div>
 
-                    {/* Operational Action Control Deck */}
+                    {/* Operational Action Control Deck - Custom to Current Role */}
                     <div className="pt-2 border-t border-resq-border space-y-2">
                       
-                      {/* Unassigned -> Claim Payload */}
-                      {selectedSubBatch.claim_status === 'unassigned' && (
-                        <button
-                          onClick={() => handleClaimSubBatch(selectedSubBatch.id)}
-                          className="w-full py-2 bg-resq-primary hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-all shadow-xs flex items-center justify-center space-x-1.5"
-                        >
-                          <i data-lucide="hand-metal" className="w-4 h-4"></i>
-                          <span>Claim Micro-Batch as Courier</span>
-                        </button>
+                      {/* RIDER SPECIFIC ACTIONS */}
+                      {currentRole === 'rider' && (
+                        <div className="space-y-2">
+                          {selectedSubBatch.claim_status === 'unassigned' ? (
+                            <button
+                              onClick={() => handleClaimSubBatch(selectedSubBatch.id)}
+                              className="w-full py-2 bg-resq-primary hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-all shadow-xs flex items-center justify-center space-x-1.5"
+                            >
+                              <i data-lucide="hand-metal" className="w-4 h-4"></i>
+                              <span>Claim This Micro-Batch (Courier Mission)</span>
+                            </button>
+                          ) : (
+                            <div className="space-y-2">
+                              <button
+                                onClick={() => handleSendHeartbeat(selectedSubBatch.id)}
+                                className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-xs transition-all shadow-xs flex items-center justify-center space-x-1.5"
+                              >
+                                <i data-lucide="activity" className="w-4 h-4"></i>
+                                <span>Send Live Heartbeat Ping (Courier Active)</span>
+                              </button>
+
+                              <div className="bg-resq-pale p-2.5 rounded-lg border border-resq-border space-y-1.5">
+                                <label className="text-[11px] font-semibold text-resq-navy block">
+                                  {selectedSubBatch.claim_status === 'reserved' ? 'Enter Pickup OTP (from Kitchen)' : 'Enter Delivery Dropoff OTP (from Shelter)'}
+                                </label>
+                                <div className="flex space-x-1.5">
+                                  <input
+                                    type="text"
+                                    maxLength={4}
+                                    placeholder={selectedSubBatch.claim_status === 'reserved' ? `Kitchen OTP: ${selectedSubBatch.pickup_otp}` : `Shelter OTP: ${selectedSubBatch.dropoff_otp}`}
+                                    value={otpInput}
+                                    onChange={(e) => setOtpInput(e.target.value)}
+                                    className="flex-1 px-2.5 py-1 text-xs border border-resq-border rounded font-mono text-center tracking-widest focus:outline-none focus:border-resq-primary"
+                                  />
+                                  <button
+                                    onClick={() => selectedSubBatch.claim_status === 'reserved' ? handleVerifyPickup(selectedSubBatch.id) : handleVerifyDropoff(selectedSubBatch.id)}
+                                    className="px-3 py-1 bg-resq-navy text-white text-xs font-semibold rounded hover:bg-slate-800"
+                                  >
+                                    Confirm
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
 
-                      {/* Reserved / In-Transit -> Heartbeat & OTP Verification */}
-                      {(selectedSubBatch.claim_status === 'reserved' || selectedSubBatch.claim_status === 'in_transit' || selectedSubBatch.claim_status === 'rerouted') && (
+                      {/* DONOR SPECIFIC ACTIONS */}
+                      {currentRole === 'donor' && (
                         <div className="space-y-2">
-                          <button
-                            onClick={() => handleSendHeartbeat(selectedSubBatch.id)}
-                            className="w-full py-1.5 bg-emerald-50 text-resq-green border border-emerald-200 hover:bg-emerald-100 rounded-lg font-semibold text-xs transition-all flex items-center justify-center space-x-1"
-                          >
-                            <i data-lucide="activity" className="w-3.5 h-3.5"></i>
-                            <span>Transmit Dead-Man Heartbeat</span>
-                          </button>
+                          <div className="bg-amber-50 p-2.5 rounded-lg border border-amber-200 text-[11px] text-amber-900 space-y-1">
+                            <div className="font-bold flex items-center space-x-1">
+                              <span>Donor Verification Handshake</span>
+                            </div>
+                            <div>
+                              Give this 4-digit Pickup OTP to the arriving rider when handing over meals:
+                            </div>
+                            <div className="text-center py-1">
+                              <span className="font-mono text-base font-bold bg-white px-3 py-0.5 rounded border border-amber-300 tracking-widest text-resq-navy">
+                                {selectedSubBatch.pickup_otp}
+                              </span>
+                            </div>
+                          </div>
 
-                          {/* OTP Verification Input */}
-                          <div className="bg-resq-pale p-2.5 rounded-lg border border-resq-border space-y-1.5">
-                            <label className="text-[11px] font-semibold text-resq-navy block">
-                              {selectedSubBatch.claim_status === 'reserved' ? 'Verify Pickup OTP (from Kitchen)' : 'Verify Dropoff OTP (from Shelter)'}
-                            </label>
+                          <button
+                            onClick={() => setNewBatchModalOpen(true)}
+                            className="w-full py-2 bg-resq-primary hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-all shadow-xs flex items-center justify-center space-x-1.5"
+                          >
+                            <i data-lucide="plus" className="w-4 h-4"></i>
+                            <span>Register Another Surplus Donation</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* SHELTER MANAGER SPECIFIC ACTIONS */}
+                      {currentRole === 'shelter' && (
+                        <div className="space-y-2">
+                          <div className="bg-blue-50 p-2.5 rounded-lg border border-blue-200 text-[11px] text-blue-900 space-y-1">
+                            <div className="font-bold">Shelter Intake Release Code</div>
+                            <div>
+                              Provide this Dropoff OTP to the rider upon meal physical intake:
+                            </div>
+                            <div className="text-center py-1">
+                              <span className="font-mono text-base font-bold bg-white px-3 py-0.5 rounded border border-blue-300 tracking-widest text-resq-primary">
+                                {selectedSubBatch.dropoff_otp}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Quick Capacity Decrement / Walk-in Logger */}
+                          <div className="p-2.5 rounded-lg border border-resq-border bg-slate-50 space-y-1.5">
+                            <div className="text-[11px] font-semibold text-resq-navy flex justify-between">
+                              <span>Log Sudden Offline Walk-Ins</span>
+                              <span className="text-resq-primary font-mono">{targetShelter?.capacity_remaining} left</span>
+                            </div>
                             <div className="flex space-x-1.5">
-                              <input
-                                type="text"
-                                maxLength={4}
-                                placeholder={selectedSubBatch.claim_status === 'reserved' ? `Hint: ${selectedSubBatch.pickup_otp}` : `Hint: ${selectedSubBatch.dropoff_otp}`}
-                                value={otpInput}
-                                onChange={(e) => setOtpInput(e.target.value)}
-                                className="flex-1 px-2.5 py-1 text-xs border border-resq-border rounded font-mono text-center tracking-widest focus:outline-none focus:border-resq-primary"
-                              />
                               <button
-                                onClick={() => selectedSubBatch.claim_status === 'reserved' ? handleVerifyPickup(selectedSubBatch.id) : handleVerifyDropoff(selectedSubBatch.id)}
-                                className="px-3 py-1 bg-resq-navy text-white text-xs font-semibold rounded hover:bg-slate-800"
+                                onClick={() => {
+                                  if (!targetShelter) return;
+                                  const newCap = Math.max(0, targetShelter.capacity_remaining - 10);
+                                  setShelters(prev => prev.map(s => s.id === targetShelter.id ? { ...s, capacity_remaining: newCap, status: newCap === 0 ? 'filled' : 'open' } : s));
+                                  showAlert('WALK-INS LOGGED', `Recorded 10 walk-in intakes at ${targetShelter.name}. Capacity updated.`, 'info');
+                                }}
+                                className="flex-1 py-1 bg-white border border-resq-border text-resq-navy text-xs rounded font-medium hover:bg-gray-100"
                               >
-                                Verify
+                                +10 Walk-ins (-10 Cap)
+                              </button>
+                              <button
+                                onClick={() => triggerChaosShelterSaturation()}
+                                className="px-2.5 py-1 bg-red-100 border border-red-200 text-resq-red text-xs rounded font-medium hover:bg-red-200"
+                              >
+                                Mark Filled
                               </button>
                             </div>
                           </div>
                         </div>
                       )}
 
-                      {/* Dynamic Mid-Journey Reroute Button */}
-                      <div className="flex space-x-2 pt-1">
-                        <button
-                          onClick={() => handleRerouteSubBatch(selectedSubBatch.id)}
-                          className="flex-1 py-1.5 bg-white border border-resq-border hover:bg-gray-50 text-resq-navy text-xs font-semibold rounded-lg flex items-center justify-center space-x-1"
-                          title="Reroute to fallback shelter if primary is saturated"
-                        >
-                          <i data-lucide="refresh-cw" className="w-3.5 h-3.5 text-resq-primary"></i>
-                          <span>Fallback Reroute</span>
-                        </button>
+                      {/* ADMIN SPECIFIC ACTIONS (Full Control) */}
+                      {currentRole === 'admin' && (
+                        <div className="space-y-2">
+                          {selectedSubBatch.claim_status === 'unassigned' && (
+                            <button
+                              onClick={() => handleClaimSubBatch(selectedSubBatch.id)}
+                              className="w-full py-2 bg-resq-primary hover:bg-blue-700 text-white rounded-lg font-semibold text-xs transition-all shadow-xs flex items-center justify-center space-x-1.5"
+                            >
+                              <i data-lucide="hand-metal" className="w-4 h-4"></i>
+                              <span>Claim Micro-Batch as Courier</span>
+                            </button>
+                          )}
 
-                        <button
-                          onClick={() => {
-                            setSubBatches(prev => prev.map(s => s.id === selectedSubBatch.id ? { ...s, claim_status: 'at_risk' } : s));
-                            showAlert('MARKED AS AT RISK', `Dispatcher alerted to assist courier on ${selectedSubBatch.id}`, 'warning');
-                          }}
-                          className="px-3 py-1.5 bg-amber-50 border border-amber-200 text-resq-amber hover:bg-amber-100 text-xs font-semibold rounded-lg"
-                        >
-                          Mark At-Risk
-                        </button>
-                      </div>
+                          {(selectedSubBatch.claim_status === 'reserved' || selectedSubBatch.claim_status === 'in_transit' || selectedSubBatch.claim_status === 'rerouted') && (
+                            <div className="space-y-2">
+                              <button
+                                onClick={() => handleSendHeartbeat(selectedSubBatch.id)}
+                                className="w-full py-1.5 bg-emerald-50 text-resq-green border border-emerald-200 hover:bg-emerald-100 rounded-lg font-semibold text-xs transition-all flex items-center justify-center space-x-1"
+                              >
+                                <i data-lucide="activity" className="w-3.5 h-3.5"></i>
+                                <span>Transmit Dead-Man Heartbeat</span>
+                              </button>
+
+                              <div className="bg-resq-pale p-2 rounded-lg border border-resq-border flex items-center justify-between text-[11px]">
+                                <span>Pickup OTP: <b className="font-mono">{selectedSubBatch.pickup_otp}</b></span>
+                                <span>Dropoff OTP: <b className="font-mono">{selectedSubBatch.dropoff_otp}</b></span>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex space-x-2 pt-1">
+                            <button
+                              onClick={() => handleRerouteSubBatch(selectedSubBatch.id)}
+                              className="flex-1 py-1.5 bg-white border border-resq-border hover:bg-gray-50 text-resq-navy text-xs font-semibold rounded-lg flex items-center justify-center space-x-1"
+                              title="Reroute to fallback shelter if primary is saturated"
+                            >
+                              <i data-lucide="refresh-cw" className="w-3.5 h-3.5 text-resq-primary"></i>
+                              <span>Fallback Reroute</span>
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setSubBatches(prev => prev.map(s => s.id === selectedSubBatch.id ? { ...s, claim_status: 'at_risk' } : s));
+                                showAlert('MARKED AS AT RISK', `Dispatcher alerted to assist courier on ${selectedSubBatch.id}`, 'warning');
+                              }}
+                              className="px-3 py-1.5 bg-amber-50 border border-amber-200 text-resq-amber hover:bg-amber-100 text-xs font-semibold rounded-lg"
+                            >
+                              Mark At-Risk
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                     </div>
                   </div>
