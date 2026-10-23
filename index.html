@@ -553,22 +553,49 @@
         const newSubBatches = [];
         let shelterIdx = 0;
 
-        // Candidate shelters meeting dependency requirements
-        const candidateShelters = shelters.filter(s => {
-          if (s.status !== 'open' || s.capacity_remaining <= 0) return false;
-          if (dependencies.includes('clean_water') && !s.utilities.clean_water) return false;
-          if (dependencies.includes('cooking_fuel') && !s.utilities.cooking_fuel) return false;
+        // 1. Identify Candidate Shelters matching utility dependencies
+        let candidateShelters = shelters.filter(s => {
+          if (dependencies.includes('clean_water') && !s.utilities?.clean_water) return false;
+          if (dependencies.includes('cooking_fuel') && !s.utilities?.cooking_fuel) return false;
           return true;
         });
 
-        if (candidateShelters.length === 0) {
-          showAlert('NO COMPATIBLE SHELTERS', 'No shelters have matching utility dependencies or open capacity!', 'error');
-          return;
+        // 2. If all matching shelters have 0 capacity, check if any open shelter exists or auto-expand disaster capacity
+        let openWithCapacity = candidateShelters.filter(s => s.status === 'open' && s.capacity_remaining > 0);
+
+        if (openWithCapacity.length === 0) {
+          // If shelters are filled, offer emergency temporary overflow capacity
+          if (candidateShelters.length > 0) {
+            candidateShelters = candidateShelters.map(s => {
+              const emergencyExpansion = 60; // Auto emergency shelter overflow buffer
+              return {
+                ...s,
+                status: 'open',
+                capacity_total: s.capacity_total + emergencyExpansion,
+                capacity_remaining: s.capacity_remaining + emergencyExpansion
+              };
+            });
+            // Update master shelters state
+            setShelters(prev => prev.map(s => {
+              const matched = candidateShelters.find(cs => cs.id === s.id);
+              return matched || s;
+            }));
+            openWithCapacity = candidateShelters;
+            addLog('EMERGENCY_OVERFLOW_EXPANSION', `Activated emergency overflow capacity (+60 meals) across ${candidateShelters.length} matched shelters.`);
+          } else {
+            // No shelter matched the strict utilities (e.g., both clean water and cooking fuel are checked, but no shelter has both)
+            showAlert(
+              'DEPENDENCY CONFLICT',
+              'No shelters have both clean water AND cooking fuel active. Uncheck one dependency or inspect Shelter Grid utilities!',
+              'error'
+            );
+            return;
+          }
         }
 
         while (remaining > 0) {
-          const chunk = Math.min(40, remaining);
-          const targetShelter = candidateShelters[shelterIdx % candidateShelters.length];
+          const targetShelter = openWithCapacity[shelterIdx % openWithCapacity.length];
+          const chunk = Math.min(40, remaining, Math.max(10, targetShelter.capacity_remaining));
           const subId = 'SB-' + Math.floor(10 + Math.random() * 90);
           
           newSubBatches.push({
@@ -601,8 +628,8 @@
         setNewBatchModalOpen(false);
 
         queueMutation('BATCH_SPLIT', { batchId, subBatches: newSubBatches });
-        addLog('DYNAMIC_SPLITTER', `Fragmented ${newBatch.total_units} units into ${newSubBatches.length} scooter payloads (<= 40 units).`);
-        showAlert('BATCH AUTO-SPLIT & ASSIGNED', `Created ${newSubBatches.length} sub-batches matched to compatible utility-safe shelters.`, 'success');
+        addLog('DYNAMIC_SPLITTER', `Auto-split ${newBatch.total_units} units into ${newSubBatches.length} scooter payloads (<= 40 units).`);
+        showAlert('BATCH AUTO-SPLIT & ASSIGNED', `Successfully created ${newSubBatches.length} scooter payloads matched across compatible shelters.`, 'success');
       };
 
       // 5.2 Courier Claim & Heartbeat
@@ -1999,6 +2026,29 @@
                         />
                         <span>Requires Cooking Fuel</span>
                       </label>
+                    </div>
+
+                    {/* Live Compatibility Feedback */}
+                    <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-[11px] space-y-1 mt-2">
+                      <div className="flex items-center justify-between font-semibold">
+                        <span className="text-resq-navy">Matching Shelters Found:</span>
+                        <span className="font-mono text-resq-primary">
+                          {shelters.filter(s => {
+                            if (newBatchForm.clean_water && !s.utilities?.clean_water) return false;
+                            if (newBatchForm.cooking_fuel && !s.utilities?.cooking_fuel) return false;
+                            return true;
+                          }).length} Compatible
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-resq-slate">
+                        Available Capacity: <b className="font-mono text-resq-green">{
+                          shelters.filter(s => {
+                            if (newBatchForm.clean_water && !s.utilities?.clean_water) return false;
+                            if (newBatchForm.cooking_fuel && !s.utilities?.cooking_fuel) return false;
+                            return true;
+                          }).reduce((acc, s) => acc + s.capacity_remaining, 0)
+                        } meals</b> (Auto-expands disaster overflow buffer if saturated)
+                      </div>
                     </div>
                   </div>
 
