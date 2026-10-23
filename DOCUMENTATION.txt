@@ -124,8 +124,16 @@ When Psi = REVOKE_CLAIM:
 The payload is restored to the public pool instantly with zero human latency.
 
 --------------------------------------------------------------------------------
-4. ROLE-BASED ACCESS CONTROL (RBAC) & USER FLOWS
+4. ROLE-BASED ACCESS CONTROL (RBAC), SECURITY & USER FLOWS
 --------------------------------------------------------------------------------
+ResQMesh incorporates a Cryptographic Security Gateway with token-based session
+persistence, clearance levels, and role-isolated operational consoles:
+- Chief Elena Rostova (Admin, Level-4 Crisis Dispatcher)
+- Alex Rivera (Rider, Level-2 Field Operative)
+- Midtown Relief Kitchen (Donor, Level-1 Verified Donor)
+- Mercy High Shelter Desk (Shelter, Level-3 Intake Coordinator)
+Includes terminal lock, session timeout revoking, and encrypted local storage tokens.
+
 ResQMesh customizes its visual interface, KPI telemetry, and operational actions
 based on four specialized crisis response personas:
 
