@@ -1,0 +1,230 @@
+================================================================================
+RESQMESH: INTELLIGENT HUMANITARIAN LOGISTICS & EMERGENCY DISPATCH PLATFORM
+================================================================================
+Comprehensive Project Documentation, Architecture Specification & Mathematical Models
+Version: 1.0.0 (Production Disaster-Ready Release)
+Author: Disaster Logistics & Systems Architecture Team
+Repository: https://github.com/SandipBarela/vibeathon_Nonchalant
+
+--------------------------------------------------------------------------------
+1. EXECUTIVE SUMMARY & PROBLEM STATEMENT
+--------------------------------------------------------------------------------
+During sudden crises, severe flash floods, and urban infrastructure breakdowns,
+aid distribution systems frequently collapse at the "Last-Mile Spoilage Trap".
+The fundamental bottleneck is not aid scarcity, but operational uncertainty:
+
+1. Bulk Supply vs. Fragmented Demand:
+   Donations arrive as monolithic payloads (e.g., 200 hot cooked meals). Flooded,
+   debris-strewn urban corridors cannot support heavy freight vehicles; they 
+   require agile, lightweight micro-mobility (scooters, bicycles, walking volunteers).
+
+2. The "Ghost Reservation" Trap:
+   Volunteers claim perishable payloads and subsequently drop offline due to 
+   battery exhaustion, physical obstruction, or panic. The food rots in limbo while
+   falsely flagged as "In Transit".
+
+3. Mid-Journey Demand Collapse:
+   A courier embarks toward an open shelter, but while en route, dozens of offline
+   walk-in refugees arrive, completely saturating shelter capacity. The courier 
+   arrives at a closed facility with rapidly decaying aid.
+
+4. Dependency Violations:
+   Supplies requiring clean water (infant formula) or cooking fuel (raw grains)
+   are mistakenly dispatched to shelters where water mains have burst or power grids 
+   have failed, rendering the aid useless.
+
+5. Zero-Internet Grid Breakdown:
+   When telecommunications towers lose backup power or fiber backhauls are submerged,
+   standard cloud-dependent delivery apps fail entirely.
+
+ResQMesh resolves these challenges through an autonomous, decentralized, zero-waste
+micro-logistics platform designed to operate seamlessly under both online and 
+zero-internet disaster modes.
+
+--------------------------------------------------------------------------------
+2. SYSTEM ARCHITECTURE & DUAL-MODE DISPATCH ENGINE
+--------------------------------------------------------------------------------
+ResQMesh features a dual-mode operational architecture:
+
+MODE 1: CLOUD-ASSISTED REAL-TIME DISPATCH (Online State)
+- Centralized coordination via Supabase (PostgreSQL 15+).
+- Sub-second Realtime WebSocket replication broadcasting shelter capacities,
+  courier heartbeats, and OTP handshakes across all active nodes.
+- Automated server-side triggers intercepting saturation events and firing 
+  rerouting procedures in under 2 seconds.
+
+MODE 2: IN-BROWSER DECENTRALIZED SURVIVAL ROUTING (Zero-Internet Flood Mode)
+- Zero build-step client application loading in memory and cached locally.
+- Pre-cached topological roadway graph (intersections, edges, road elevations)
+  stored in browser localStorage and IndexedDB.
+- Client-Side Dijkstra/A* Pathfinding Engine: Computes real-time detour vectors
+  entirely in JavaScript with 0ms network latency.
+- Dynamic Roadblock Submergence: Interactive one-tap "Road Submerged" trigger sets
+  flooded edge weights to infinity, recomputing alternative dry routes instantly.
+- Store-and-Forward Mutation Queue: Courier claims, handshakes, and status changes
+  are queued locally with ISO timestamps and automatically flushed to Supabase
+  upon cellular recovery.
+
+--------------------------------------------------------------------------------
+3. MATHEMATICAL & ALGORITHMIC MODELS
+--------------------------------------------------------------------------------
+
+3.1 Micro-Payload Bin Packing & Utility Feasibility Model
+Let a bulk batch B possess total units Q, shelf life window tau_exp, and required
+lifeline utility set U_B subset_of {clean_water, cooking_fuel}.
+Let S = {s_1, s_2, ..., s_m} represent candidate humanitarian shelters, where
+each shelter s_i has remaining capacity C_i, status state in {open, filled, closed},
+and active utility profile U_{s_i}.
+
+1. Utility Feasibility Filter:
+   Feasible(s_i, B) = 1  IF (U_B subset_of U_{s_i}) AND (C_i > 0) AND (status(s_i) = 'open')
+   Feasible(s_i, B) = 0  OTHERWISE
+
+2. Micro-Load Fragmentation (Payload Bound V_max = 40):
+   Each vehicle load q_k is strictly bounded by courier vehicle capacity:
+   q_k = min(V_max, Q_remaining, C_i)
+   subject to: SUM(q_k) = Q
+
+3. Emergency Overflow Buffer:
+   If all utility-compatible shelters have reached C_i = 0, the system triggers
+   an automated disaster overflow expansion:
+   C_i_new = C_i + 60 (temporary overflow intake capacity)
+   preventing bulk aid rejection at donation hubs.
+
+3.2 Dynamic In-Browser Dijkstra Roadway Solver
+The city topology is represented as a directed weighted graph G = (V, E, W):
+- V: Intersections, bridges, and humanitarian shelters.
+- E: Navigable roadway segments.
+- W(u, v): Base traversal time in minutes.
+
+When flood waters submerge an edge (u, v):
+   W'(u, v) = INFINITY                 IF submerged(u, v) = true
+   W'(u, v) = W(u, v) * (1 + delta)    IF dry (where delta is elevation grade penalty)
+
+The client Dijkstra solver calculates optimal dry route P*:
+   P* = argmin SUM(W'(u, v)) for all valid paths from Depot to Target Shelter.
+
+Survival Feasibility Constraint:
+   ETA(P*) = SUM(W'(u, v)) along P* < Remaining_Shelf_Life(batch)
+If ETA exceeds remaining shelf life, the destination is flagged as unviable,
+and the courier is automatically reassigned to the nearest compatible shadow fallback.
+
+3.3 Dead-Man Heartbeat Revocation Engine
+To eradicate ghost reservations, courier active status requires periodic pings:
+Let t_now be current epoch time, and t_hb be the courier's last telemetry ping.
+Elapsed time Delta_t = t_now - t_hb.
+
+Validity Function Psi(courier):
+   Psi = ACTIVE          IF Delta_t <= T_threshold (T_threshold = 180 seconds)
+   Psi = REVOKE_CLAIM    IF Delta_t > T_threshold
+
+When Psi = REVOKE_CLAIM:
+   UPDATE sub_batches
+   SET claim_status = 'unassigned', rider_id = NULL, heartbeat_at = NULL
+The payload is restored to the public pool instantly with zero human latency.
+
+--------------------------------------------------------------------------------
+4. ROLE-BASED ACCESS CONTROL (RBAC) & USER FLOWS
+--------------------------------------------------------------------------------
+ResQMesh customizes its visual interface, KPI telemetry, and operational actions
+based on four specialized crisis response personas:
+
+1. RIDER (Courier & Field Volunteer):
+   - Console: Streamlined, high-contrast mobile view for active navigation.
+   - KPIs: Assigned Payloads, Heartbeat Status (15s cadence), Destination Shelter ETA.
+   - Actions:
+     * One-tap "Claim Micro-Batch".
+     * "Send Live Heartbeat Ping" to refresh dead-man timer.
+     * Pickup & Dropoff OTP input verification for cryptographic handshakes.
+
+2. DONOR (Emergency Kitchens, Supermarkets, Restaurants):
+   - Console: Aid donation registration portal.
+   - KPIs: Total Meals Donated, Active Batches Registered.
+   - Actions:
+     * "Register Bulk Aid Donation" with cargo type, units, and shelf life.
+     * Utility dependency selection (clean water, cooking fuel).
+     * Displays secret 4-digit Pickup OTP for verification upon handover.
+
+3. SHELTER (Camp Coordinators & Reception Hubs):
+   - Console: Shelter capacity and intake management grid.
+   - KPIs: Remaining Intake Capacity, Incoming In-Transit Meals, Utility Status.
+   - Actions:
+     * Releases 4-digit Dropoff OTP to courier upon physical cargo intake.
+     * "+10 Walk-ins (-10 Cap)" button to register offline refugees instantly.
+     * "Mark Filled" trigger testing dynamic mid-journey courier rerouting.
+
+4. ADMIN (Central Crisis Dispatchers):
+   - Console: Full operational dispatch map and telemetry deck.
+   - KPIs: Global active in-transit payloads, critical at-risk timers, courier availability.
+   - Actions:
+     * Manual fallback rerouting and escalation review.
+     * Access to the Chaos Simulator Deck.
+
+--------------------------------------------------------------------------------
+5. POSTGRESQL DATABASE SCHEMA & STORED PROCEDURES
+--------------------------------------------------------------------------------
+The complete database layer is written in production PL/pgSQL:
+
+Tables:
+- shelters: Primary intake locations, remaining capacities, status, utility JSONB flags.
+- batches: Bulk donations, donor credentials, cargo type, expiry timestamps, dependencies.
+- sub_batches: Partitioned micro-loads (<= 40 units), assigned riders, OTP handshakes, heartbeats.
+- road_network_edges: Node graph backup containing distances, elevations, and submerged states.
+- audit_logs: Real-time telemetry event stream for transparency and accountability.
+
+Core Stored Procedures:
+1. split_and_assign_batch(p_batch_id UUID, p_max_vehicle_capacity INT DEFAULT 40):
+   Partitions bulk volumes into scooter-safe loads, verifies shelter utilities,
+   generates OTPs, and decrements temporary intake capacity atomically.
+
+2. sweep_stale_claims():
+   Background dead-man worker executed via cron/client polling. Sweeps reserved
+   batches where heartbeat_at > 3 minutes old and resets status to 'unassigned'.
+
+3. find_alternative_shelter(p_sub_batch_id UUID, p_exclude_shelter_id UUID):
+   Triggered on shelter saturation. Discovers the nearest open compatible shelter
+   and reroutes couriers mid-transit before food spoils.
+
+4. handle_shelter_saturation():
+   PostgreSQL AFTER UPDATE trigger monitoring shelters when capacity reaches 0.
+   Automatically dispatches reroute RPCs for all incoming in-transit couriers.
+
+--------------------------------------------------------------------------------
+6. CHAOS SIMULATOR SPECIFICATION (STRESS-TESTING SUITE)
+--------------------------------------------------------------------------------
+An integrated Chaos Engineering deck enables crisis dispatchers to inject real-world
+catastrophes into the running simulation:
+
+- Ghost Rider Injection: Forces an active courier's heartbeat to simulate 6 minutes
+  of silence, verifying that the Dead-Man engine revokes and reassigns the payload.
+- Shelter Saturation: Instantly floods an open shelter with 150 offline walk-ins,
+  verifying that PostgreSQL triggers intercept in-transit riders and reroute them.
+- Flash Flood Edge Submerging: Marks topological bridge and road edges as flooded,
+  verifying that the client Dijkstra solver recalculates dry elevation detours.
+- Utility Outage: Cuts potable water and cooking fuel, verifying that raw rations
+  and baby formula are strictly prohibited from being dispatched.
+
+--------------------------------------------------------------------------------
+7. REPOSITORY STRUCTURE & QUICKSTART
+--------------------------------------------------------------------------------
+Repository: https://github.com/SandipBarela/vibeathon_Nonchalant
+
+Files:
+├── index.html              # Production single-file application (React, Tailwind, Leaflet, GSAP)
+├── supabase_schema.sql     # Complete PostgreSQL DDL, RLS, Indexes, Triggers, & RPCs
+├── vite.config.ts          # Vite build & TypeScript path alias configuration
+├── tailwind.config.js      # ResQMesh curated disaster design tokens & palette
+├── src/
+│   ├── components/ui/      # Modular React UI components (gradient-background-4, demo)
+│   └── lib/utils.ts        # Reusable Tailwind clsx / twMerge utilities
+└── README.md               # Quickstart guide and architectural documentation
+
+To Run Locally:
+1. Clone the repository:
+   git clone https://github.com/SandipBarela/vibeathon_Nonchalant.git
+2. Navigate to project directory:
+   cd vibeathon_Nonchalant
+3. Start any standard HTTP server (or use npx serve):
+   npx serve -l 3000
+4. Open http://localhost:3000 in any browser. Zero compilation required.
+================================================================================
