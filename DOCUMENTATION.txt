@@ -149,7 +149,10 @@ based on four specialized crisis response personas:
    - Console: Shelter capacity and intake management grid.
    - KPIs: Remaining Intake Capacity, Incoming In-Transit Meals, Utility Status.
    - Actions:
-     * Releases 4-digit Dropoff OTP to courier upon physical cargo intake.
+     * "Share Intake OTP with Courier": Broadcasts 4-digit Dropoff OTP to arriving rider via peer-to-peer mesh.
+     * "Verify & Confirm Shelter Package Handover": Rider receives transmitted OTP and verifies intake in 1 click.
+     * Live Map Synchronization: Shelter marker transforms into celebratory green checkmark with floating
+       "✓ PACKAGE RECEIVED (X MEALS)" callout; delivery route turns solid emerald green (#10B981) and camera flies to shelter.
      * "+10 Walk-ins (-10 Cap)" button to register offline refugees instantly.
      * "Mark Filled" trigger testing dynamic mid-journey courier rerouting.
 

@@ -378,6 +378,14 @@
       const [activeAlert, setActiveAlert] = useState(null);
       const [newBatchModalOpen, setNewBatchModalOpen] = useState(false);
       const [otpInput, setOtpInput] = useState('');
+      const [sharedOtpState, setSharedOtpState] = useState(() => {
+        const saved = localStorage.getItem('resq_shared_otp');
+        return saved ? JSON.parse(saved) : {};
+      });
+
+      useEffect(() => {
+        localStorage.setItem('resq_shared_otp', JSON.stringify(sharedOtpState));
+      }, [sharedOtpState]);
 
       // Form State for new Batch Donation
       const [newBatchForm, setNewBatchForm] = useState({
@@ -746,15 +754,47 @@
         }
       };
 
-      const handleVerifyDropoff = (subBatchId) => {
+      const handleShelterShareOtp = (subBatchId) => {
         const sb = subBatches.find(s => s.id === subBatchId);
         if (!sb) return;
-        if (otpInput === sb.dropoff_otp || otpInput === '1234') {
-          setSubBatches(prev => prev.map(s => s.id === subBatchId ? { ...sb, claim_status: 'delivered' } : s));
+        const shelterObj = shelters.find(s => s.id === sb.shelter_id);
+        const otp = sb.dropoff_otp;
+        const nowTime = new Date().toLocaleTimeString();
+
+        setSharedOtpState(prev => ({
+          ...prev,
+          [subBatchId]: {
+            otp,
+            shelterName: shelterObj ? shelterObj.name : 'Assigned Shelter',
+            sharedAt: nowTime,
+            sharedBy: 'Shelter Manager'
+          }
+        }));
+
+        addLog('SHELTER_SHARED_OTP', `Shelter ${shelterObj ? shelterObj.name : 'Facility'} shared Intake OTP #${otp} with rider ${sb.rider_name || 'Alex'}.`);
+        showAlert('OTP SHARED WITH RIDER', `Shelter transmitted Intake OTP #${otp} to rider. Ready for handover verification!`, 'success');
+      };
+
+      const handleVerifyDropoff = (subBatchId, codeOverride = null) => {
+        const sb = subBatches.find(s => s.id === subBatchId);
+        if (!sb) return;
+        const code = codeOverride || otpInput;
+        if (code === sb.dropoff_otp || code === '1234') {
+          const destShelter = shelters.find(s => s.id === sb.shelter_id);
+          setSubBatches(prev => prev.map(s => s.id === subBatchId ? { 
+            ...sb, 
+            claim_status: 'delivered',
+            delivered_at: new Date().toISOString()
+          } : s));
           setOtpInput('');
           queueMutation('OTP_DROPOFF_VERIFIED', { subBatchId });
-          addLog('DELIVERY_CONFIRMED', `Dropoff OTP verified! ${sb.units} meals successfully delivered.`);
-          showAlert('DELIVERY COMPLETE', 'Zero-waste mission accomplished!', 'success');
+          addLog('DELIVERY_CONFIRMED', `Dropoff OTP verified! Shelter ${destShelter ? destShelter.name : 'Facility'} has physically received ${sb.units} meals.`);
+          showAlert('PACKAGE RECEIVED BY SHELTER', `Confirmed! ${destShelter ? destShelter.name : 'Shelter'} has received the package (${sb.units} meals). Map updated!`, 'success');
+
+          // Smoothly fly camera to shelter on map to highlight delivery receipt
+          if (leafletMapRef.current && destShelter) {
+            leafletMapRef.current.flyTo([destShelter.lat, destShelter.lng], 15, { duration: 1.2 });
+          }
         } else {
           showAlert('INVALID DROPOFF OTP', 'The 4-digit code does not match shelter authorization.', 'error');
         }
@@ -969,18 +1009,80 @@
 
         // Draw Shelter Markers
         shelters.forEach(s => {
+          // Identify if this shelter has received delivered packages
+          const deliveredToThisShelter = subBatches.filter(sb => sb.shelter_id === s.id && sb.claim_status === 'delivered');
+          const isSelected = selectedSubBatch && selectedSubBatch.shelter_id === s.id;
+          const hasReceivedSelected = isSelected && selectedSubBatch.claim_status === 'delivered';
+          const totalReceivedMeals = deliveredToThisShelter.reduce((acc, sb) => acc + sb.units, 0);
+
           let color = '#23865B'; // Green = open
           if (s.status === 'filled') color = '#667085'; // Grey = filled
           if (s.capacity_remaining < 30 && s.status === 'open') color = '#D99A16'; // Amber = capacity warning
+          if (deliveredToThisShelter.length > 0) color = '#10B981'; // Bright Emerald Green = Package Received!
+          if (isSelected) color = '#F28C45';
 
-          const isSelected = selectedSubBatch && selectedSubBatch.shelter_id === s.id;
+          // Custom Marker with Glowing Checkmark badge if package received
+          const markerHtml = `
+            <div style="position: relative;">
+              ${deliveredToThisShelter.length > 0 ? `
+                <div style="position: absolute; top: -9px; right: -9px; background-color: #10B981; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; border: 2px solid #FFFFFF; z-index: 10; box-shadow: 0 2px 6px rgba(0,0,0,0.35);">
+                  ✓
+                </div>
+              ` : ''}
+              <div style="background-color: ${color}; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.25); border: 2.5px solid #FFFFFF;" class="${hasReceivedSelected ? 'animate-bounce' : ''}">
+                <span style="color: white; font-size: 13px; font-weight: bold;">${deliveredToThisShelter.length > 0 ? '✓' : 'S'}</span>
+              </div>
+            </div>
+          `;
 
           const marker = L.marker([s.lat, s.lng], {
-            icon: createSvgIcon(isSelected ? '#F28C45' : color, 'S')
+            icon: L.divIcon({
+              className: 'custom-shelter-marker',
+              html: markerHtml,
+              iconSize: [34, 34],
+              iconAnchor: [17, 17]
+            })
           }).addTo(markers);
 
+          // If the selected package was just delivered here, show a floating celebration badge!
+          if (hasReceivedSelected) {
+            const popupCallout = L.popup({
+              closeButton: false,
+              autoClose: false,
+              closeOnClick: false,
+              offset: [0, -22],
+              className: 'package-received-popup'
+            })
+            .setLatLng([s.lat, s.lng])
+            .setContent(`
+              <div style="background: #ECFDF5; border: 2px solid #10B981; border-radius: 8px; padding: 6px 10px; font-family: Inter, sans-serif; text-align: center; box-shadow: 0 4px 14px rgba(16,185,129,0.35);">
+                <div style="color: #065F46; font-weight: 800; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                  <span>✓</span> <span>PACKAGE RECEIVED</span>
+                </div>
+                <div style="color: #047857; font-size: 11px; font-weight: 600; margin-top: 1px;">
+                  ${selectedSubBatch.units} Meals Received by ${s.name}
+                </div>
+                <div style="color: #059669; font-size: 9px; font-family: monospace; font-weight: bold;">
+                  Secure OTP #${selectedSubBatch.dropoff_otp} Handshake Verified
+                </div>
+              </div>
+            `);
+            popupCallout.addTo(markers);
+          }
+
           marker.bindPopup(`
-            <div style="font-family: Inter, sans-serif; font-size: 12px;">
+            <div style="font-family: Inter, sans-serif; font-size: 12px; min-width: 210px;">
+              ${deliveredToThisShelter.length > 0 ? `
+                <div style="background: #ECFDF5; border: 1.5px solid #10B981; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;">
+                  <b style="color: #065F46; font-size: 12px; display: flex; align-items: center; gap: 4px;">
+                    <span>✓</span> PACKAGE RECEIVED BY SHELTER
+                  </b>
+                  <span style="color: #047857; font-size: 10px; display: block; margin-top: 2px;">
+                    Total Delivered: <b>${totalReceivedMeals} Meals</b> (${deliveredToThisShelter.length} deliveries)
+                  </span>
+                  <span style="color: #059669; font-size: 9px;">Verified via Secure Shelter OTP Handshake</span>
+                </div>
+              ` : ''}
               <b style="font-size: 13px; color: #172B4D;">${s.name}</b><br/>
               <span style="color: #667085;">Remaining Capacity:</span> <b>${s.capacity_remaining} / ${s.capacity_total}</b><br/>
               <span>Status:</span> <b style="text-transform: uppercase;">${s.status}</b><br/>
@@ -1016,15 +1118,38 @@
             return [node.lat, node.lng];
           });
 
+          const isDelivered = selectedSubBatch.claim_status === 'delivered';
           L.polyline(latLngs, {
-            color: selectedSubBatch.claim_status === 'rerouted' ? '#23865B' : (selectedSubBatch.claim_status === 'at_risk' ? '#D64545' : '#3563E9'),
-            weight: 5,
-            opacity: 0.9
+            color: isDelivered ? '#10B981' : (selectedSubBatch.claim_status === 'rerouted' ? '#23865B' : (selectedSubBatch.claim_status === 'at_risk' ? '#D64545' : '#3563E9')),
+            weight: isDelivered ? 6 : 5,
+            opacity: isDelivered ? 0.95 : 0.85
           }).addTo(routes);
         }
 
-        // Draw Live Moving Courier Marker (Real-Time GPS Telemetry)
-        if (selectedSubBatch && (selectedSubBatch.claim_status === 'in_transit' || selectedSubBatch.claim_status === 'reserved')) {
+        // Draw Live Moving Courier Marker or Handover Completed Marker
+        if (selectedSubBatch && selectedSubBatch.claim_status === 'delivered' && targetShelter) {
+          const deliveredCourierIcon = L.divIcon({
+            className: 'courier-delivered-marker',
+            html: `
+              <div style="background-color: #10B981; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(16,185,129,0.5); border: 2.5px solid #FFFFFF;">
+                <span style="color: white; font-size: 16px;">🚴</span>
+              </div>
+            `,
+            iconSize: [34, 34],
+            iconAnchor: [17, 17]
+          });
+
+          L.marker([targetShelter.lat - 0.0012, targetShelter.lng + 0.0015], { icon: deliveredCourierIcon })
+            .addTo(markers)
+            .bindPopup(`
+              <div style="font-family: Inter, sans-serif; font-size: 12px; padding: 2px;">
+                <b style="color: #10B981; font-size: 13px;">✓ HANDOVER COMPLETE</b><br/>
+                <span style="color: #172B4D; font-weight: 600;">Courier: ${selectedSubBatch.rider_name || 'Active Courier'}</span><br/>
+                <span>Dropoff Verified at ${targetShelter.name}</span><br/>
+                <span style="color: #23865B; font-weight: 600;">Package Received by Shelter</span>
+              </div>
+            `);
+        } else if (selectedSubBatch && (selectedSubBatch.claim_status === 'in_transit' || selectedSubBatch.claim_status === 'reserved')) {
           const courierIcon = L.divIcon({
             className: 'courier-gps-marker',
             html: `
@@ -1053,7 +1178,7 @@
             `);
         }
 
-      }, [shelters, roadGraph, selectedSubBatchId, dijkstraSolution, courierPosition, isTelemetryLive]);
+      }, [shelters, roadGraph, selectedSubBatchId, dijkstraSolution, courierPosition, isTelemetryLive, subBatches, sharedOtpState]);
 
       // Metrics Computation (Live Realtime Telemetry)
       const metrics = useMemo(() => {
@@ -1414,11 +1539,17 @@
                       {/* Expiry Countdown Clock */}
                       <div className="text-right">
                         <div className="text-[10px] uppercase tracking-wider text-resq-slate font-medium">Perishable Window</div>
-                        <div className={`font-mono text-lg font-bold ${
-                          getTimeRemaining(selectedSubBatch.expires_at).isUrgent ? 'text-resq-orange animate-urgent' : 'text-resq-navy'
-                        }`}>
-                          {getTimeRemaining(selectedSubBatch.expires_at).formatted}
-                        </div>
+                        {selectedSubBatch.claim_status === 'delivered' ? (
+                          <div className="font-bold text-resq-green text-sm flex items-center justify-end space-x-1">
+                            <span>✓ SAFELY RECEIVED</span>
+                          </div>
+                        ) : (
+                          <div className={`font-mono text-lg font-bold ${
+                            getTimeRemaining(selectedSubBatch.expires_at).isUrgent ? 'text-resq-orange animate-urgent' : 'text-resq-navy'
+                          }`}>
+                            {getTimeRemaining(selectedSubBatch.expires_at).formatted}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1485,6 +1616,19 @@
                               <i data-lucide="hand-metal" className="w-4 h-4"></i>
                               <span>Claim This Micro-Batch (Courier Mission)</span>
                             </button>
+                          ) : selectedSubBatch.claim_status === 'delivered' ? (
+                            <div className="bg-emerald-50 border-2 border-emerald-500 rounded-xl p-3 text-center space-y-1.5 shadow-xs">
+                              <div className="text-emerald-700 font-bold text-xs flex items-center justify-center space-x-1.5">
+                                <i data-lucide="check-circle" className="w-4 h-4 text-emerald-600"></i>
+                                <span>MISSION COMPLETE - PACKAGE DELIVERED!</span>
+                              </div>
+                              <p className="text-[11px] text-emerald-800">
+                                Shelter confirmed physical intake of {selectedSubBatch.units} meals via Handshake OTP #{selectedSubBatch.dropoff_otp}.
+                              </p>
+                              <div className="text-[10px] text-emerald-700 font-semibold bg-emerald-100/70 py-0.5 px-2.5 rounded-full inline-block">
+                                ✓ Live Map Updated: Shelter Package Received
+                              </div>
+                            </div>
                           ) : (
                             <div className="space-y-2">
                               <button
@@ -1495,10 +1639,51 @@
                                 <span>Send Live Heartbeat Ping (Courier Active)</span>
                               </button>
 
+                              {/* INCOMING SHELTER SHARED OTP BANNER FOR RIDER */}
+                              {selectedSubBatch.claim_status !== 'reserved' && sharedOtpState[selectedSubBatch.id] && (
+                                <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-2 border-emerald-400 p-2.5 rounded-xl space-y-2 shadow-xs">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-1.5 text-xs font-bold text-emerald-900">
+                                      <span className="relative flex h-2 w-2">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                      </span>
+                                      <span>Shelter Shared Intake OTP</span>
+                                    </div>
+                                    <span className="text-[10px] text-emerald-600 font-mono">{sharedOtpState[selectedSubBatch.id].sharedAt}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between bg-white px-3 py-1.5 rounded-lg border border-emerald-200">
+                                    <span className="text-[11px] text-slate-600">From: <b className="text-resq-navy">{sharedOtpState[selectedSubBatch.id].shelterName}</b></span>
+                                    <span className="font-mono text-base font-bold text-emerald-700 tracking-widest bg-emerald-100 px-2.5 py-0.5 rounded border border-emerald-300">
+                                      {sharedOtpState[selectedSubBatch.id].otp}
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleVerifyDropoff(selectedSubBatch.id, sharedOtpState[selectedSubBatch.id].otp)}
+                                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-sm transition-all flex items-center justify-center space-x-1.5"
+                                  >
+                                    <i data-lucide="package-check" className="w-4 h-4"></i>
+                                    <span>Verify & Confirm Shelter Package Handover</span>
+                                  </button>
+                                </div>
+                              )}
+
                               <div className="bg-resq-pale p-2.5 rounded-lg border border-resq-border space-y-1.5">
-                                <label className="text-[11px] font-semibold text-resq-navy block">
-                                  {selectedSubBatch.claim_status === 'reserved' ? 'Enter Pickup OTP (from Kitchen)' : 'Enter Delivery Dropoff OTP (from Shelter)'}
-                                </label>
+                                <div className="flex items-center justify-between">
+                                  <label className="text-[11px] font-semibold text-resq-navy block">
+                                    {selectedSubBatch.claim_status === 'reserved' ? 'Enter Pickup OTP (from Kitchen)' : 'Enter Delivery Dropoff OTP (from Shelter)'}
+                                  </label>
+                                  {selectedSubBatch.claim_status !== 'reserved' && !sharedOtpState[selectedSubBatch.id] && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleShelterShareOtp(selectedSubBatch.id)}
+                                      className="text-[10px] text-resq-primary hover:underline font-semibold"
+                                      title="Simulate shelter manager broadcasting OTP"
+                                    >
+                                      Simulate Shelter OTP Share
+                                    </button>
+                                  )}
+                                </div>
                                 <div className="flex space-x-1.5">
                                   <input
                                     type="text"
@@ -1551,17 +1736,61 @@
                       {/* SHELTER MANAGER SPECIFIC ACTIONS */}
                       {currentRole === 'shelter' && (
                         <div className="space-y-2">
-                          <div className="bg-blue-50 p-2.5 rounded-lg border border-blue-200 text-[11px] text-blue-900 space-y-1">
-                            <div className="font-bold">Shelter Intake Release Code</div>
-                            <div>
-                              Provide this Dropoff OTP to the rider upon meal physical intake:
+                          {selectedSubBatch.claim_status === 'delivered' ? (
+                            <div className="bg-emerald-50 border-2 border-emerald-500 rounded-xl p-3 text-center space-y-1.5 shadow-xs">
+                              <div className="text-emerald-700 font-bold text-xs flex items-center justify-center space-x-1.5">
+                                <i data-lucide="check-circle" className="w-4 h-4 text-emerald-600"></i>
+                                <span>PACKAGE INTAKE CONFIRMED</span>
+                              </div>
+                              <p className="text-[11px] text-emerald-800">
+                                Shelter safely received {selectedSubBatch.units} meals via Handshake OTP #{selectedSubBatch.dropoff_otp}.
+                              </p>
+                              <div className="text-[10px] text-emerald-700 font-semibold bg-emerald-100/70 py-0.5 px-2.5 rounded-full inline-block">
+                                ✓ Live Map Updated: Shelter Package Received
+                              </div>
                             </div>
-                            <div className="text-center py-1">
-                              <span className="font-mono text-base font-bold bg-white px-3 py-0.5 rounded border border-blue-300 tracking-widest text-resq-primary">
-                                {selectedSubBatch.dropoff_otp}
-                              </span>
+                          ) : (
+                            <div className="space-y-2">
+                              <div className="bg-blue-50 p-2.5 rounded-lg border border-blue-200 text-[11px] text-blue-900 space-y-1.5">
+                                <div className="font-bold flex items-center justify-between">
+                                  <span>Shelter Intake Release Code</span>
+                                  <span className="text-[10px] text-resq-primary font-normal">Physical Handover Verification</span>
+                                </div>
+                                <div>
+                                  Provide or broadcast this Dropoff OTP to the rider upon meal physical intake:
+                                </div>
+                                <div className="text-center py-1.5">
+                                  <span className="font-mono text-lg font-bold bg-white px-4 py-1 rounded border-2 border-blue-300 tracking-widest text-resq-primary shadow-xs">
+                                    {selectedSubBatch.dropoff_otp}
+                                  </span>
+                                </div>
+
+                                {/* Share OTP with Rider Button */}
+                                <button
+                                  onClick={() => handleShelterShareOtp(selectedSubBatch.id)}
+                                  className="w-full py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-semibold text-xs shadow-xs transition-all flex items-center justify-center space-x-1.5"
+                                >
+                                  <i data-lucide="share-2" className="w-3.5 h-3.5"></i>
+                                  <span>{sharedOtpState[selectedSubBatch.id] ? '📡 Re-Broadcast OTP to Courier' : '📲 Share Intake OTP with Courier'}</span>
+                                </button>
+
+                                {sharedOtpState[selectedSubBatch.id] && (
+                                  <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1 text-center font-medium">
+                                    ✓ Broadcasted to courier at {sharedOtpState[selectedSubBatch.id].sharedAt}. Awaiting rider confirmation.
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Manual direct intake verification for shelter operator */}
+                              <button
+                                onClick={() => handleVerifyDropoff(selectedSubBatch.id, selectedSubBatch.dropoff_otp)}
+                                className="w-full py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1"
+                              >
+                                <i data-lucide="check" className="w-3.5 h-3.5"></i>
+                                <span>Directly Confirm Package Received</span>
+                              </button>
                             </div>
-                          </div>
+                          )}
 
                           {/* Quick Capacity Decrement / Walk-in Logger */}
                           <div className="p-2.5 rounded-lg border border-resq-border bg-slate-50 space-y-1.5">
@@ -1605,7 +1834,11 @@
                             </button>
                           )}
 
-                          {(selectedSubBatch.claim_status === 'reserved' || selectedSubBatch.claim_status === 'in_transit' || selectedSubBatch.claim_status === 'rerouted') && (
+                          {selectedSubBatch.claim_status === 'delivered' ? (
+                            <div className="bg-emerald-50 border border-emerald-300 rounded-lg p-2 text-center text-xs text-emerald-800 font-semibold">
+                              ✓ Package Handover Verified — Shelter Received {selectedSubBatch.units} Meals
+                            </div>
+                          ) : (selectedSubBatch.claim_status === 'reserved' || selectedSubBatch.claim_status === 'in_transit' || selectedSubBatch.claim_status === 'rerouted') && (
                             <div className="space-y-2">
                               <button
                                 onClick={() => handleSendHeartbeat(selectedSubBatch.id)}
@@ -1618,6 +1851,21 @@
                               <div className="bg-resq-pale p-2 rounded-lg border border-resq-border flex items-center justify-between text-[11px]">
                                 <span>Pickup OTP: <b className="font-mono">{selectedSubBatch.pickup_otp}</b></span>
                                 <span>Dropoff OTP: <b className="font-mono">{selectedSubBatch.dropoff_otp}</b></span>
+                              </div>
+
+                              <div className="flex space-x-1.5">
+                                <button
+                                  onClick={() => handleShelterShareOtp(selectedSubBatch.id)}
+                                  className="flex-1 py-1.5 bg-blue-50 text-resq-primary border border-blue-200 hover:bg-blue-100 rounded text-xs font-semibold"
+                                >
+                                  Share Shelter OTP
+                                </button>
+                                <button
+                                  onClick={() => handleVerifyDropoff(selectedSubBatch.id, selectedSubBatch.dropoff_otp)}
+                                  className="flex-1 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 rounded text-xs font-semibold"
+                                >
+                                  Verify Dropoff
+                                </button>
                               </div>
                             </div>
                           )}
